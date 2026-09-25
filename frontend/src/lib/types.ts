@@ -32,6 +32,7 @@ export interface Game {
   repacker?: string;
   drmFree?: string;
   installed: boolean;
+  padHint?: string; // "libScePad" | "SDL"
   dir: string;
   exe?: string;
   args?: string;
@@ -40,6 +41,7 @@ export interface Game {
   userExe?: boolean;
   sizeBytes?: number;
   steamAppId?: number;
+  metaAppId?: number;
   gogId?: string;
   epicApp?: string;
   how: string;
@@ -87,6 +89,18 @@ export interface ScanState {
   added: number;
   known: number;
   error?: string;
+}
+
+export interface MetaState {
+  running: boolean;
+  done: number;
+  total: number;
+}
+
+export interface StoreHit {
+  appId: number;
+  name: string;
+  image: string;
 }
 
 export interface AppInfo {

@@ -50,6 +50,7 @@ type Emulation struct {
 	AppIDFrom string
 	Gog       *gogInfo // a GOG game info file, when present
 	GogFile   string
+	PadHint   string // "libScePad" (Sony's DualSense library) or "SDL" when the game ships one
 }
 
 // DetectEmulation looks through a game folder for Steam emulators, cracks
@@ -116,6 +117,10 @@ func DetectEmulation(dir string, signed func(string) bool) Emulation {
 			}
 		case unlockers[name]:
 			unlocker = true
+		case name == "libscepad.dll" || name == "libscepad_x64.dll":
+			e.PadHint = "libScePad"
+		case (name == "sdl2.dll" || name == "sdl3.dll") && e.PadHint == "":
+			e.PadHint = "SDL"
 		case name == "steam_api.dll" || name == "steam_api64.dll":
 			dlls = append(dlls, p)
 		case strings.HasPrefix(name, "goggame-") && strings.HasSuffix(name, ".info") && e.Gog == nil:

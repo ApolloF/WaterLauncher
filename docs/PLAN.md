@@ -95,7 +95,8 @@ Data: `%APPDATA%\WaterLauncher` (`settings.json`, `library.json`, log), `%LOCALA
 ## 5. Metadata and art
 
 - **Steam (no key; checked 2026-09-25):** `store.steampowered.com/api/appdetails` gives the description, genres, developer, release date and categories (55 DualShock, 57/58 DualSense, 28 full controller support). `IStoreBrowseService/GetItems` with `include_assets` gives the library cover, hero, logo and header. This covers every emulated-Steam copy too.
-- **GOG:** `api.gog.com/products/{id}`. **PCGamingWiki** Cargo API: ID cross-references and controller data. **SteamGridDB:** optional key, for games without a Steam ID and to pick alternative covers.
+- **GOG:** `api.gog.com/products/{id}`. **SteamGridDB:** optional key, for games without a Steam ID and to pick alternative covers. Games the manifest doesn't know are also looked up on the Steam store by exact title.
+- **PCGamingWiki** was dropped during v0.2: its API now refuses Cargo queries. Controller support comes from Steam's store categories (DualShock 55, DualSense 57/58) and from the game's files (Sony's `libScePad.dll`, or SDL, which handles a DualSense itself).
 - **Fallback:** a generated cover from the title plus the icon pulled from the exe.
 - **Image pipeline:** HTTPS to allowlisted hosts only, with size and time limits. Every image is decoded and re-encoded (which strips anything hidden in the file) at the sizes the UI needs, stored by content hash, and served through the asset handler with long cache lifetimes. An accent colour is extracted per game for glows and the lightbar.
 - User overrides (title, cover, hero) are never overwritten by a refresh.

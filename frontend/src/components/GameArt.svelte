@@ -7,7 +7,8 @@
 
   let { game, kind = "cover" }: { game: Game; kind?: "cover" | "hero" } = $props();
 
-  const src = $derived(kind === "cover" ? game.meta?.cover : game.meta?.hero);
+  // A hero banner falls back to the cover, which is better than nothing.
+  const src = $derived(kind === "cover" ? game.meta?.cover : (game.meta?.hero ?? game.meta?.cover));
   const a = $derived(artFor(game.key));
   let failed = $state(false);
   $effect(() => {

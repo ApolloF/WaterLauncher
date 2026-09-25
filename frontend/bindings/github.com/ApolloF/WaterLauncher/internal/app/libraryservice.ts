@@ -13,6 +13,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as library$0 from "../library/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as meta$0 from "../meta/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -47,6 +50,13 @@ export function Games(): $CancellablePromise<library$0.Game[] | null> {
 }
 
 /**
+ * MetaState reports metadata fetching progress.
+ */
+export function MetaState(): $CancellablePromise<$models.MetaState> {
+    return $Call.ByID(2108934609);
+}
+
+/**
  * OpenFolder shows the game's folder in Explorer.
  */
 export function OpenFolder(id: number): $CancellablePromise<void> {
@@ -58,6 +68,13 @@ export function OpenFolder(id: number): $CancellablePromise<void> {
  */
 export function Play(id: number): $CancellablePromise<void> {
     return $Call.ByID(767287191, id);
+}
+
+/**
+ * RefreshMetadata fetches a game's metadata and art again.
+ */
+export function RefreshMetadata(id: number): $CancellablePromise<void> {
+    return $Call.ByID(2213972277, id);
 }
 
 /**
@@ -82,6 +99,13 @@ export function ScanState(): $CancellablePromise<$models.ScanState> {
 }
 
 /**
+ * SearchSteam looks up titles on the Steam store, to pick the right game.
+ */
+export function SearchSteam(query: string): $CancellablePromise<meta$0.StoreHit[] | null> {
+    return $Call.ByID(582756011, query);
+}
+
+/**
  * SetFavorite marks or unmarks a favorite.
  */
 export function SetFavorite(id: number, on: boolean): $CancellablePromise<library$0.Game> {
@@ -93,6 +117,14 @@ export function SetFavorite(id: number, on: boolean): $CancellablePromise<librar
  */
 export function SetHidden(id: number, on: boolean): $CancellablePromise<library$0.Game> {
     return $Call.ByID(3616234503, id, on);
+}
+
+/**
+ * SetMatch says which game this is: a Steam app and its name. The choice
+ * is kept across scans, and metadata is fetched for it.
+ */
+export function SetMatch(id: number, steamAppID: number, name: string): $CancellablePromise<library$0.Game> {
+    return $Call.ByID(3788970144, id, steamAppID, name);
 }
 
 /**

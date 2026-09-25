@@ -56,6 +56,7 @@ type Core struct {
 	state   ScanState
 	pending chan struct{}
 	watcher *fsnotify.Watcher
+	meta    *metaWorker
 }
 
 // NewCore opens the library and settings.
@@ -65,17 +66,20 @@ func NewCore(version string) (*Core, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Core{
+	c := &Core{
 		Version: version, Lib: lib, Settings: settings.Open(settings.DefaultPath()),
 		Manifest: identify.NewManager(platform.CacheDir("manifest")),
 		ctx:      ctx, cancel: cancel, pending: make(chan struct{}, 1),
-	}, nil
+	}
+	c.meta = newMetaWorker(c)
+	return c, nil
 }
 
 // Start runs the first scan, keeps the game database fresh and watches
 // the folders games install into.
 func (c *Core) Start() {
 	go c.scanLoop()
+	go c.meta.run(c.ctx)
 	c.RequestScan()
 	go func() {
 		if !c.Manifest.Stale() {
@@ -157,6 +161,7 @@ func (c *Core) scanNow() {
 	})
 	c.emit(EventLibraryChanged, "scan")
 	c.rewatch(cfg)
+	c.meta.queueMissing()
 }
 
 // toFound turns a scanned, identified candidate into a library record.
@@ -167,7 +172,7 @@ func toFound(g scan.Candidate, m identify.Match, cfg settings.Settings) library.
 		Unofficial: g.Unofficial(), Dir: g.Dir, Exe: g.Exe, Args: g.Args, WorkDir: g.WorkDir,
 		LaunchURI: g.LaunchURI, SizeBytes: g.SizeBytes, SteamAppID: m.SteamAppID, GogID: m.GogID,
 		EpicApp: g.EpicApp, How: g.How, MatchHow: m.How, Confidence: m.Confidence,
-		StorePlaytime: g.StorePlaytime, StoreLastPlayed: g.StoreLastPlayed,
+		StorePlaytime: g.StorePlaytime, StoreLastPlayed: g.StoreLastPlayed, PadHint: g.PadHint,
 	}
 	f.SourceLabel = sourceLabel(g)
 	f.NeedsReview = cfg.ReviewUncertain && m.Confidence < 70 && !g.Source.Store()

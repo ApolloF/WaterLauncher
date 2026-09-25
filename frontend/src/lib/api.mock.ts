@@ -1,7 +1,7 @@
 // Made-up library for `npm run dev:mock`: the games from the design canvas,
 // covering every way a game can be found.
 import type { Api } from "./api";
-import type { AppInfo, Game, ScanState, Settings } from "./types";
+import type { AppInfo, Game, MetaState, ScanState, Settings } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
 const day = 86400;
@@ -29,7 +29,7 @@ function game(p: Partial<Game> & { title: string }): Game {
 }
 
 let games: Game[] = [
-  game({ title: "Ember Crown", source: "installer", sourceLabel: "Unofficial · Goldberg", unofficial: true, emulator: "Goldberg", steamAppId: 1245620, how: "Game folder in D:\\Games (Steam emulator)", matchHow: "Steam AppID read from steam_settings", confidence: 95, playtime: 18 * 3600, lastPlayed: now - 3600, favorite: true, exe: "D:\\Games\\Ember Crown\\EmberCrown.exe", sizeBytes: 54e9 }),
+  game({ meta: { description: "A fallen knight climbs a burning mountain to take back a crown that was never theirs. Brutal, fair combat and a world that remembers every choice.", developers: ["Ashgrove"], publishers: ["Ashgrove"], genres: ["Action", "RPG"], releaseYear: 2026, dualSense: "yes", accent: "#e8894a" }, title: "Ember Crown", source: "installer", sourceLabel: "Unofficial · Goldberg", unofficial: true, emulator: "Goldberg", steamAppId: 1245620, how: "Game folder in D:\\Games (Steam emulator)", matchHow: "Steam AppID read from steam_settings", confidence: 95, playtime: 18 * 3600, lastPlayed: now - 3600, favorite: true, exe: "D:\\Games\\Ember Crown\\EmberCrown.exe", sizeBytes: 54e9 }),
   game({ title: "Hollow Tide", steamAppId: 413150, launchUri: "steam://rungameid/413150", playtime: 42 * 3600, lastPlayed: now - day, favorite: true, dir: "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Hollow Tide", sizeBytes: 64e9 }),
   game({ title: "Neon Meridian", source: "installer", sourceLabel: "Repack · DODI", unofficial: true, repacker: "DODI", how: "Installed by a DODI repack", matchHow: "Matched by title", confidence: 85, playtime: 7 * 3600, lastPlayed: now - 3 * day, padMode: "steam", sizeBytes: 21e9 }),
   game({ title: "Starfall Protocol", source: "epic", sourceLabel: "Epic", how: "Epic Games library", matchHow: "Epic Games library", playtime: 64 * 3600, lastPlayed: now - 8 * day, sizeBytes: 38e9 }),
@@ -60,6 +60,7 @@ let settings: Settings = {
   glyphs: "auto",
 };
 
+let sgdb = false;
 let state: ScanState = { running: false, lastScan: now - 120, tookMs: 940, games: games.length, added: 0, known: 52107 };
 const libListeners = new Set<() => void>();
 const scanListeners = new Set<(s: ScanState) => void>();
@@ -101,6 +102,19 @@ export const mockApi: Api = {
     await update(id, (g) => (g.lastPlayed = Math.floor(Date.now() / 1000)));
   },
   async openFolder() {},
+  async metaState(): Promise<MetaState> {
+    return { running: false, done: 0, total: 0 };
+  },
+  async refreshMetadata() {},
+  async searchSteam(q) {
+    await wait(300);
+    return [
+      { appId: 757310, name: "Sable", image: "" },
+      { appId: 717850, name: `${q} Deluxe Edition`, image: "" },
+      { appId: 941900, name: `${q} Soundtrack`, image: "" },
+    ];
+  },
+  setMatch: (id, appId, name) => update(id, (g) => ((g.steamAppId = appId), (g.title = name), (g.confirmed = true), (g.needsReview = false), (g.matchHow = "Chosen by you"), (g.confidence = 100))),
 
   async settings() {
     return clone(settings);
@@ -124,6 +138,12 @@ export const mockApi: Api = {
     return { version: "mock", dataDir: "C:\\Users\\you\\AppData\\Roaming\\WaterLauncher", logFile: "waterlauncher.log" };
   },
   async openLog() {},
+  async hasSteamGridDBKey() {
+    return sgdb;
+  },
+  async setSteamGridDBKey(k) {
+    sgdb = !!k;
+  },
 
   onLibraryChanged(cb) {
     libListeners.add(cb);
@@ -132,6 +152,9 @@ export const mockApi: Api = {
   onScanState(cb) {
     scanListeners.add(cb);
     return () => scanListeners.delete(cb);
+  },
+  onMetaState() {
+    return () => {};
   },
   window: { minimise() {}, toggleMaximise() {}, close() {} },
 };

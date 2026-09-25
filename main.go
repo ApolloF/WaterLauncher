@@ -8,6 +8,7 @@ import (
 
 	"github.com/ApolloF/WaterLauncher/internal/app"
 	"github.com/ApolloF/WaterLauncher/internal/logx"
+	"github.com/ApolloF/WaterLauncher/internal/meta"
 	"github.com/ApolloF/WaterLauncher/internal/platform"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -34,7 +35,10 @@ func main() {
 			application.NewService(app.NewLibraryService(core)),
 			application.NewService(app.NewSettingsService(core)),
 		},
-		Assets: application.AssetOptions{Handler: application.AssetFileServerFS(assets)},
+		Assets: application.AssetOptions{
+			Handler:    application.AssetFileServerFS(assets),
+			Middleware: meta.ArtHandler(platform.CacheDir("art")),
+		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "nl.apollof.waterlauncher",
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {

@@ -11,6 +11,15 @@ export interface AppInfo {
 }
 
 /**
+ * MetaState is what the metadata worker is doing.
+ */
+export interface MetaState {
+    "running": boolean;
+    "done": number;
+    "total": number;
+}
+
+/**
  * ScanState tells the frontend what the scanner is doing.
  */
 export interface ScanState {

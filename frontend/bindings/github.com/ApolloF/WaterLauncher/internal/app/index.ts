@@ -10,5 +10,6 @@ export {
 
 export type {
     AppInfo,
+    MetaState,
     ScanState
 } from "./models.js";

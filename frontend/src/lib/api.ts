@@ -1,7 +1,7 @@
 // The frontend's one door to the Go side. In mock mode (`npm run dev:mock`)
 // the same interface is served by made-up data, so the interface can be
 // built and checked in a normal browser. Vite drops the unused one.
-import type { AppInfo, Game, ScanState, Settings } from "./types";
+import type { AppInfo, Game, MetaState, ScanState, Settings, StoreHit } from "./types";
 import { realApi } from "./api.real";
 import { mockApi } from "./api.mock";
 
@@ -17,6 +17,10 @@ export interface Api {
   chooseExe(id: number): Promise<Game>;
   play(id: number): Promise<void>;
   openFolder(id: number): Promise<void>;
+  metaState(): Promise<MetaState>;
+  refreshMetadata(id: number): Promise<void>;
+  searchSteam(query: string): Promise<StoreHit[]>;
+  setMatch(id: number, appId: number, name: string): Promise<Game>;
 
   settings(): Promise<Settings>;
   saveSettings(s: Settings): Promise<Settings>;
@@ -25,9 +29,12 @@ export interface Api {
   autoFolders(): Promise<string[]>;
   info(): Promise<AppInfo>;
   openLog(): Promise<void>;
+  hasSteamGridDBKey(): Promise<boolean>;
+  setSteamGridDBKey(key: string): Promise<void>;
 
   onLibraryChanged(cb: () => void): () => void;
   onScanState(cb: (s: ScanState) => void): () => void;
+  onMetaState(cb: (s: MetaState) => void): () => void;
 
   window: {
     minimise(): void;
