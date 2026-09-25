@@ -1,7 +1,7 @@
 // The frontend's one door to the Go side. In mock mode (`npm run dev:mock`)
 // the same interface is served by made-up data, so the interface can be
 // built and checked in a normal browser. Vite drops the unused one.
-import type { AppInfo, Game, MetaState, ScanState, Settings, StoreHit } from "./types";
+import type { AppInfo, Game, MetaState, PadState, ScanState, Settings, StoreHit } from "./types";
 import { realApi } from "./api.real";
 import { mockApi } from "./api.mock";
 
@@ -40,6 +40,15 @@ export interface Api {
     minimise(): void;
     toggleMaximise(): void;
     close(): void;
+    fullscreen(on: boolean): void;
+  };
+
+  pad: {
+    state(): Promise<PadState>;
+    rumble(effect: "tick" | "confirm" | "error"): void;
+    setLight(hex: string): void;
+    onAction(cb: (action: string, repeat: boolean) => void): () => void;
+    onState(cb: (s: PadState) => void): () => void;
   };
 }
 
