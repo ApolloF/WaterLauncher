@@ -5,8 +5,24 @@
   import { ago, bytes, playtime } from "../lib/format";
   import { lib } from "../lib/store.svelte";
   import { lastPlayed, played, title, type Game } from "../lib/types";
+  import MatchDialog from "./MatchDialog.svelte";
 
   let { game }: { game: Game } = $props();
+
+  let matching = $state(false);
+  let logoFailed = $state(false);
+  $effect(() => {
+    game.meta?.logo;
+    logoFailed = false;
+  });
+  const m = $derived(game.meta);
+  const facts = $derived(
+    [
+      m?.developers?.length ? m.developers[0] + (m.developers.length > 1 ? ` +${m.developers.length - 1}` : "") : "",
+      m?.releaseYear ? String(m.releaseYear) : "",
+      m?.genres?.slice(0, 3).join(" · "),
+    ].filter(Boolean) as string[],
+  );
 
   let menuOpen = $state(false);
   let renaming = $state(false);
@@ -24,9 +40,11 @@
   const padNote = $derived.by(() => {
     if (padMode === "native") return "Always starts directly. The game handles the DualSense itself.";
     if (padMode === "steam") return "Always starts through Steam Input, so the DualSense acts as an Xbox controller.";
-    if (dualSense === "yes") return "Auto: this game supports DualSense natively, so it starts directly.";
-    if (dualSense === "no") return "Auto: no DualSense support found, so it starts through Steam Input.";
-    return "Auto: starts directly until WaterLauncher knows whether the game supports DualSense.";
+    if (dualSense === "yes") return "Auto: Steam lists DualSense support for this game, so it starts directly.";
+    if (game.padHint === "libScePad") return "Auto: the game ships Sony's DualSense library, so it starts directly.";
+    if (game.padHint === "SDL") return "Auto: the game uses SDL, which handles a DualSense itself, so it starts directly.";
+    if (dualSense === "dualshock") return "Auto: Steam lists DualShock support only; the game starts directly.";
+    return "Auto: no DualSense support known yet, so the game starts directly.";
   });
 
   function startRename() {
@@ -70,6 +88,8 @@
         }}
         onblur={saveRename}
       />
+    {:else if m?.logo && !logoFailed}
+      <img class="logo" src={m.logo} alt={title(game)} draggable="false" onerror={() => (logoFailed = true)} />
     {:else}
       <h2 class="title">{title(game)}</h2>
     {/if}
@@ -78,7 +98,7 @@
   <div class="body">
     <div class="actions">
       {#if game.installed}
-        <button type="button" class="play" onclick={play}>
+        <button type="button" class="play" onclick={play} style:--glow={m?.accent ?? "transparent"}>
           <Icon name="play" size={18} />
           <span>Play</span>
         </button>
@@ -111,6 +131,15 @@
               <button type="button" role="menuitem" onclick={() => ((menuOpen = false), lib.run(() => api.chooseExe(game.id)))}><Icon name="file" size={18} />Choose program…</button>
             {/if}
             <button type="button" role="menuitem" onclick={startRename}><Icon name="pencil" size={18} />Rename</button>
+            <button type="button" role="menuitem" onclick={() => ((menuOpen = false), (matching = true))}><Icon name="link" size={18} />Change game…</button>
+            <button
+              type="button"
+              role="menuitem"
+              onclick={async () => {
+                menuOpen = false;
+                if ((await lib.run(() => api.refreshMetadata(game.id).then(() => true))) === true) lib.toast("Fetching details and art…");
+              }}><Icon name="refresh" size={18} />Refresh details and art</button
+            >
             {#if game.needsReview}
               <button type="button" role="menuitem" onclick={() => ((menuOpen = false), lib.run(() => api.confirmMatch(game.id)))}><Icon name="check" size={18} />This is the right game</button>
             {/if}
@@ -128,13 +157,20 @@
       <div><span class="k">Source</span><span class="v ellipsis" title={game.sourceLabel}>{game.sourceLabel}</span></div>
     </div>
 
+    {#if m?.description || facts.length}
+      <div class="about-game">
+        {#if facts.length}<div class="facts">{facts.join("  ·  ")}</div>{/if}
+        {#if m?.description}<p class="desc">{m.description}</p>{/if}
+      </div>
+    {/if}
+
     {#if game.needsReview}
       <div class="card review">
         <div class="card-head"><Icon name="warn" size={20} /><span>Is this {title(game)}?</span></div>
-        <p>WaterLauncher found this game by its folder name and couldn't match it to a known game. Check the title, or rename it.</p>
+        <p>WaterLauncher found this game by its folder name and couldn't match it to a known game. Pick the right one, or keep it as it is.</p>
         <div class="row">
-          <button type="button" class="btn primary" onclick={() => lib.run(() => api.confirmMatch(game.id))}>Yes, keep it</button>
-          <button type="button" class="btn" onclick={startRename}>Rename</button>
+          <button type="button" class="btn primary" onclick={() => (matching = true)}>Find the game…</button>
+          <button type="button" class="btn" onclick={() => lib.run(() => api.confirmMatch(game.id))}>Keep as is</button>
           <button type="button" class="btn" onclick={() => lib.run(() => api.setHidden(game.id, true))}>Not a game</button>
         </div>
       </div>
@@ -173,6 +209,10 @@
     </dl>
   </div>
 </aside>
+
+{#if matching}
+  <MatchDialog {game} onclose={() => (matching = false)} />
+{/if}
 
 <style>
   .details {
@@ -219,6 +259,39 @@
     color: var(--text);
     text-wrap: balance;
   }
+  .logo {
+    position: absolute;
+    left: 22px;
+    bottom: 14px;
+    max-width: calc(100% - 44px);
+    max-height: 110px;
+    object-fit: contain;
+    object-position: left bottom;
+    filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.55));
+  }
+  .about-game {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .facts {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .desc {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    line-clamp: 5;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    user-select: text;
+    -webkit-user-select: text;
+  }
   .rename {
     padding: 4px 8px;
     border: 1px solid var(--accent);
@@ -252,6 +325,9 @@
     gap: 10px;
     font-size: 19px;
     font-weight: 700;
+  }
+  .play {
+    box-shadow: 0 10px 34px -8px color-mix(in oklab, var(--glow) 70%, transparent);
   }
   .play:hover:not(:disabled) {
     filter: brightness(1.08);

@@ -1,0 +1,268 @@
+package meta
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
+	"math"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	_ "image/gif"
+
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
+)
+
+// Kind is which picture of a game an image is.
+type Kind string
+
+const (
+	Cover Kind = "cover" // portrait, 2:3
+	Hero  Kind = "hero"  // wide banner behind the details
+	Logo  Kind = "logo"  // transparent title logo
+	Icon  Kind = "icon"
+)
+
+const (
+	maxImageBytes  = 24 << 20
+	maxImagePixels = 50_000_000 // refuse decompression bombs
+)
+
+// Largest stored size per kind; larger images are scaled down.
+var maxWidth = map[Kind]int{Cover: 600, Hero: 1920, Logo: 800, Icon: 128}
+
+// ArtURL is the path the interface loads a stored image from.
+const artPrefix = "/art/"
+
+var reArtName = regexp.MustCompile(`^[a-f0-9]{40}\.(jpg|png)$`)
+
+// saveImage downloads an image, checks and re-encodes it, and stores it.
+// It returns the art URL and the decoded image (for accent colours).
+func (c *Client) saveImage(ctx context.Context, src string, kind Kind) (string, image.Image, error) {
+	b, err := c.get(ctx, src, maxImageBytes, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(b))
+	if err != nil {
+		return "", nil, fmt.Errorf("not an image: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width*cfg.Height > maxImagePixels {
+		return "", nil, errors.New("image too large")
+	}
+	img, _, err := image.Decode(bytes.NewReader(b))
+	if err != nil {
+		return "", nil, err
+	}
+	img = fit(img, maxWidth[kind])
+
+	var out bytes.Buffer
+	ext := "jpg"
+	if kind == Logo || kind == Icon {
+		ext = "png"
+		err = (&png.Encoder{CompressionLevel: png.BestCompression}).Encode(&out, img)
+	} else {
+		err = jpeg.Encode(&out, flatten(img), &jpeg.Options{Quality: 88})
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	sum := sha256.Sum256(out.Bytes())
+	name := hex.EncodeToString(sum[:20]) + "." + ext
+	p := filepath.Join(c.artDir, name)
+	if _, err := os.Stat(p); err != nil {
+		if err := os.MkdirAll(c.artDir, 0o755); err != nil {
+			return "", nil, err
+		}
+		tmp := p + ".tmp"
+		if err := os.WriteFile(tmp, out.Bytes(), 0o644); err != nil {
+			return "", nil, err
+		}
+		if err := os.Rename(tmp, p); err != nil {
+			return "", nil, err
+		}
+	}
+	return artPrefix + name, img, nil
+}
+
+// fit scales img down to at most maxW pixels wide.
+func fit(img image.Image, maxW int) image.Image {
+	b := img.Bounds()
+	if maxW <= 0 || b.Dx() <= maxW {
+		return img
+	}
+	h := int(math.Round(float64(b.Dy()) * float64(maxW) / float64(b.Dx())))
+	dst := image.NewNRGBA(image.Rect(0, 0, maxW, max(1, h)))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), img, b, draw.Src, nil)
+	return dst
+}
+
+// flatten puts transparent pixels on black, since JPEG has no alpha.
+func flatten(img image.Image) image.Image {
+	b := img.Bounds()
+	dst := image.NewRGBA(b)
+	draw.Draw(dst, b, image.NewUniform(color.Black), image.Point{}, draw.Src)
+	draw.Draw(dst, b, img, b.Min, draw.Over)
+	return dst
+}
+
+// cropCover cuts a 2:3 portrait out of the middle of a wide image, for
+// games that only have banner art.
+func cropCover(img image.Image) image.Image {
+	b := img.Bounds()
+	w := b.Dy() * 2 / 3
+	if w >= b.Dx() {
+		return img
+	}
+	x := b.Min.X + (b.Dx()-w)/2
+	sub := image.NewNRGBA(image.Rect(0, 0, w, b.Dy()))
+	draw.Draw(sub, sub.Bounds(), img, image.Point{X: x, Y: b.Min.Y}, draw.Src)
+	return sub
+}
+
+// storeImage encodes an image the pipeline made itself (a cropped cover).
+func (c *Client) storeImage(img image.Image, kind Kind) (string, error) {
+	img = fit(img, maxWidth[kind])
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, flatten(img), &jpeg.Options{Quality: 88}); err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(out.Bytes())
+	name := hex.EncodeToString(sum[:20]) + ".jpg"
+	p := filepath.Join(c.artDir, name)
+	if err := os.MkdirAll(c.artDir, 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(p+".tmp", out.Bytes(), 0o644); err != nil {
+		return "", err
+	}
+	return artPrefix + name, os.Rename(p+".tmp", p)
+}
+
+// Accent picks a lively colour from an image: the most prominent hue among
+// saturated, bright-enough pixels, brought to a lightness that reads on a
+// dark background. "" when the image is too grey.
+func Accent(img image.Image) string {
+	if img == nil {
+		return ""
+	}
+	b := img.Bounds()
+	const bins = 24
+	var weight [bins]float64
+	var sumR, sumG, sumB [bins]float64
+	step := max(1, min(b.Dx(), b.Dy())/64)
+	for y := b.Min.Y; y < b.Max.Y; y += step {
+		for x := b.Min.X; x < b.Max.X; x += step {
+			r, g, bl, _ := img.At(x, y).RGBA()
+			rf, gf, bf := float64(r)/65535, float64(g)/65535, float64(bl)/65535
+			h, s, v := hsv(rf, gf, bf)
+			if v < 0.25 || s < 0.25 {
+				continue
+			}
+			w := s * s * v
+			i := int(h/360*bins) % bins
+			weight[i] += w
+			sumR[i] += rf * w
+			sumG[i] += gf * w
+			sumB[i] += bf * w
+		}
+	}
+	best, total := 0, 0.0
+	for i := range weight {
+		total += weight[i]
+		if weight[i] > weight[best] {
+			best = i
+		}
+	}
+	if weight[best] == 0 || weight[best] < total*0.08 {
+		return ""
+	}
+	r, g, bl := sumR[best]/weight[best], sumG[best]/weight[best], sumB[best]/weight[best]
+	h, s, _ := hsv(r, g, bl)
+	r, g, bl = hsvToRGB(h, math.Max(0.45, math.Min(0.75, s)), 0.92)
+	return fmt.Sprintf("#%02x%02x%02x", int(r*255+0.5), int(g*255+0.5), int(bl*255+0.5))
+}
+
+func hsv(r, g, b float64) (h, s, v float64) {
+	mx := math.Max(r, math.Max(g, b))
+	mn := math.Min(r, math.Min(g, b))
+	v = mx
+	d := mx - mn
+	if mx > 0 {
+		s = d / mx
+	}
+	switch {
+	case d == 0:
+		h = 0
+	case mx == r:
+		h = math.Mod((g-b)/d, 6)
+	case mx == g:
+		h = (b-r)/d + 2
+	default:
+		h = (r-g)/d + 4
+	}
+	h *= 60
+	if h < 0 {
+		h += 360
+	}
+	return
+}
+
+func hsvToRGB(h, s, v float64) (float64, float64, float64) {
+	c := v * s
+	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
+	m := v - c
+	var r, g, b float64
+	switch {
+	case h < 60:
+		r, g, b = c, x, 0
+	case h < 120:
+		r, g, b = x, c, 0
+	case h < 180:
+		r, g, b = 0, c, x
+	case h < 240:
+		r, g, b = 0, x, c
+	case h < 300:
+		r, g, b = x, 0, c
+	default:
+		r, g, b = c, 0, x
+	}
+	return r + m, g + m, b + m
+}
+
+// ArtHandler serves stored art under /art/ to the interface, and passes
+// every other request on.
+func ArtHandler(artDir string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasPrefix(r.URL.Path, artPrefix) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			name := strings.TrimPrefix(r.URL.Path, artPrefix)
+			if !reArtName.MatchString(name) {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			if strings.HasSuffix(name, ".png") {
+				w.Header().Set("Content-Type", "image/png")
+			} else {
+				w.Header().Set("Content-Type", "image/jpeg")
+			}
+			http.ServeFile(w, r, filepath.Join(artDir, name))
+		})
+	}
+}

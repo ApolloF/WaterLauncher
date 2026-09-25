@@ -29,6 +29,11 @@ export interface Game {
     "repacker"?: string;
     "drmFree"?: string;
     "installed": boolean;
+
+    /**
+     * the game ships libScePad or SDL
+     */
+    "padHint"?: string;
     "dir": string;
     "exe"?: string;
     "args"?: string;
@@ -41,6 +46,11 @@ export interface Game {
     "userExe"?: boolean;
     "sizeBytes"?: number;
     "steamAppId"?: number;
+
+    /**
+     * Steam app found by a store search, used only for metadata
+     */
+    "metaAppId"?: number;
     "gogId"?: string;
     "epicApp"?: string;
 

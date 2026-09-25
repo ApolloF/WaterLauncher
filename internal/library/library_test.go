@@ -81,3 +81,25 @@ func TestBrokenFileStartsFresh(t *testing.T) {
 		t.Fatalf("got %v, %d games", err, len(s.Games()))
 	}
 }
+
+func TestConfirmedMatchSurvivesRescan(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "library.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_800_000_000, 0)
+	found := []Found{{Key: `d:\games\sable`, Title: "Sable Run", SortTitle: "sable run", Source: "folder", Confidence: 40, NeedsReview: true}}
+	s.ApplyScan(found, now)
+	id := s.Games()[0].ID
+	if _, err := s.Update(id, func(g *Game) {
+		g.Confirmed, g.NeedsReview, g.SteamAppID, g.Title, g.SortTitle = true, false, 757310, "Sable", "sable"
+		g.Meta = &Meta{Cover: "/art/x.jpg"}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.ApplyScan(found, now.Add(time.Hour))
+	g, _ := s.Get(id)
+	if g.Title != "Sable" || g.SteamAppID != 757310 || g.NeedsReview || g.Meta == nil {
+		t.Errorf("confirmed match lost: %+v", g)
+	}
+}

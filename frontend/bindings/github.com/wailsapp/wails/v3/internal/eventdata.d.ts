@@ -13,6 +13,7 @@ declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "library:changed": string;
+            "meta:state": app$0.MetaState;
             "scan:state": app$0.ScanState;
         }
     }

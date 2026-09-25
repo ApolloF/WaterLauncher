@@ -55,6 +55,7 @@ type Candidate struct {
 	EmuMarker string // the file that gave it away
 	AppIDFrom string // file the Steam AppID was read from (unofficial copies)
 	DRMFree   string // "GOG" when a GOG game info file was found outside a GOG install
+	PadHint   string // "libScePad" or "SDL": the game handles a DualSense itself
 }
 
 // Unofficial reports whether the copy runs on an emulator or was installed by a repacker.

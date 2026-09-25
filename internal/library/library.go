@@ -31,6 +31,7 @@ type Game struct {
 	DRMFree     string `json:"drmFree,omitempty"`
 
 	Installed bool   `json:"installed"`
+	PadHint   string `json:"padHint,omitempty"` // the game ships libScePad or SDL
 	Dir       string `json:"dir"`
 	Exe       string `json:"exe,omitempty"`
 	Args      string `json:"args,omitempty"`
@@ -40,6 +41,7 @@ type Game struct {
 	SizeBytes int64  `json:"sizeBytes,omitempty"`
 
 	SteamAppID int    `json:"steamAppId,omitempty"`
+	MetaAppID  int    `json:"metaAppId,omitempty"` // Steam app found by a store search, used only for metadata
 	GogID      string `json:"gogId,omitempty"`
 	EpicApp    string `json:"epicApp,omitempty"`
 
@@ -111,6 +113,7 @@ type Found struct {
 	NeedsReview                 bool
 	StorePlaytime               int64
 	StoreLastPlayed             int64
+	PadHint                     string
 }
 
 type fileData struct {
@@ -226,7 +229,9 @@ func (s *Store) ApplyScan(found []Found, now time.Time) (added, removed int) {
 			s.byKey[g.Key] = g
 			added++
 		}
-		g.Title, g.SortTitle = f.Title, f.SortTitle
+		if !g.Confirmed {
+			g.Title, g.SortTitle = f.Title, f.SortTitle
+		}
 		if g.CustomTitle != "" {
 			g.SortTitle = strings.ToLower(g.CustomTitle)
 		}
@@ -244,7 +249,7 @@ func (s *Store) ApplyScan(found []Found, now time.Time) (added, removed int) {
 			g.MatchHow, g.Confidence, g.NeedsReview = f.MatchHow, f.Confidence, f.NeedsReview
 		}
 		g.EpicApp, g.How, g.SeenAt = f.EpicApp, f.How, ts
-		g.StorePlaytime, g.StoreLastPlayed = f.StorePlaytime, f.StoreLastPlayed
+		g.StorePlaytime, g.StoreLastPlayed, g.PadHint = f.StorePlaytime, f.StoreLastPlayed, f.PadHint
 	}
 	for k, g := range s.byKey {
 		if !seen[k] && g.Installed {

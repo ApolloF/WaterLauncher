@@ -16,9 +16,21 @@
   ];
 
   let autoFolders = $state<string[]>([]);
+  let hasKey = $state(false);
+  let keyDraft = $state("");
   $effect(() => {
     api.autoFolders().then((f) => (autoFolders = f));
+    api.hasSteamGridDBKey().then((k) => (hasKey = k));
   });
+
+  async function saveKey(k: string) {
+    const ok = await lib.run(() => api.setSteamGridDBKey(k.trim()).then(() => true));
+    if (ok) {
+      hasKey = !!k.trim();
+      keyDraft = "";
+      lib.toast(hasKey ? "SteamGridDB key saved. Fetching the missing art…" : "SteamGridDB key removed");
+    }
+  }
 
   const s = $derived(lib.settings);
   const set = (patch: Partial<Settings>) => s && lib.saveSettings({ ...s, ...patch });
@@ -90,6 +102,31 @@
               </ul>
             {/if}
             <button type="button" class="btn" onclick={addFolder}><Icon name="plus" size={16} stroke={2.2} />Add folder</button>
+          </div>
+          <div class="group">
+            <span class="glabel">Art for games Steam doesn't know</span>
+            <p class="hint">
+              Steam and GOG art needs no setup. For everything else, WaterLauncher can use SteamGridDB with your own free API key
+              (steamgriddb.com, Preferences, API). The key is stored encrypted for your Windows account.
+            </p>
+            {#if hasKey}
+              <div class="keyrow">
+                <span class="ok"><Icon name="check" size={16} stroke={2.4} />SteamGridDB key saved</span>
+                <button type="button" class="btn" onclick={() => saveKey("")}>Remove</button>
+              </div>
+            {:else}
+              <form
+                class="keyrow"
+                onsubmit={(e) => {
+                  e.preventDefault();
+                  if (keyDraft.trim()) saveKey(keyDraft);
+                }}
+              >
+                <label class="sr-only" for="sgdb-key">SteamGridDB API key</label>
+                <input id="sgdb-key" class="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your SteamGridDB API key" bind:value={keyDraft} />
+                <button type="submit" class="btn" disabled={!keyDraft.trim()}>Save</button>
+              </form>
+            {/if}
           </div>
         {:else}
           <dl class="kv">
@@ -305,6 +342,31 @@
   }
   .btn:hover {
     background: var(--surface-2);
+  }
+  .keyrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .key {
+    flex: 1;
+    height: 38px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface-2);
+    outline: none;
+    font-size: 14.5px;
+  }
+  .key:focus {
+    border-color: var(--accent);
+  }
+  .ok {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--accent-text);
+    font-weight: 600;
   }
   .kv {
     display: grid;

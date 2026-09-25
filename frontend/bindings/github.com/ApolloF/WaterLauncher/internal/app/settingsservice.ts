@@ -40,6 +40,13 @@ export function Get(): $CancellablePromise<settings$0.Settings> {
 }
 
 /**
+ * HasSteamGridDBKey reports whether a SteamGridDB key is stored.
+ */
+export function HasSteamGridDBKey(): $CancellablePromise<boolean> {
+    return $Call.ByID(2555718238);
+}
+
+/**
  * Info returns the version and where data is kept.
  */
 export function Info(): $CancellablePromise<$models.AppInfo> {
@@ -65,4 +72,12 @@ export function RemoveFolder(path: string): $CancellablePromise<settings$0.Setti
  */
 export function Save(v: settings$0.Settings): $CancellablePromise<settings$0.Settings> {
     return $Call.ByID(1096834604, v);
+}
+
+/**
+ * SetSteamGridDBKey stores (or with "", removes) the SteamGridDB API key,
+ * encrypted for this Windows user, and fetches art the stores lacked.
+ */
+export function SetSteamGridDBKey(key: string): $CancellablePromise<void> {
+    return $Call.ByID(1960903710, key);
 }

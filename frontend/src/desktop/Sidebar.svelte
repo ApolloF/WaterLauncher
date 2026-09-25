@@ -68,8 +68,14 @@
 
   <div class="foot">
     <button type="button" class="scan" onclick={() => api.rescan()} disabled={lib.scan.running} title="Look for games again (F5)">
-      <span class="spin" class:on={lib.scan.running}><Icon name="refresh" size={16} stroke={2} /></span>
-      <span>{lib.scan.running ? "Looking for games…" : `${lib.counts.all} games · ${scanned(lib.scan.lastScan, now)}`}</span>
+      <span class="spin" class:on={lib.scan.running || lib.meta.running}><Icon name="refresh" size={16} stroke={2} /></span>
+      <span
+        >{lib.scan.running
+          ? "Looking for games…"
+          : lib.meta.running && lib.meta.total > 0
+            ? `Fetching art · ${Math.min(lib.meta.done + 1, lib.meta.total)} of ${lib.meta.total}`
+            : `${lib.counts.all} games · ${scanned(lib.scan.lastScan, now)}`}</span
+      >
     </button>
     {#if onbigpicture}
       <button type="button" class="bp" onclick={onbigpicture}>

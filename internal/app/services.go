@@ -9,6 +9,7 @@ import (
 
 	"github.com/ApolloF/WaterLauncher/internal/library"
 	"github.com/ApolloF/WaterLauncher/internal/logx"
+	"github.com/ApolloF/WaterLauncher/internal/meta"
 	"github.com/ApolloF/WaterLauncher/internal/platform"
 	"github.com/ApolloF/WaterLauncher/internal/scan"
 	"github.com/ApolloF/WaterLauncher/internal/settings"
@@ -150,6 +151,55 @@ func (s *LibraryService) Play(id int64) error {
 	return nil
 }
 
+// MetaState reports metadata fetching progress.
+func (s *LibraryService) MetaState() MetaState { return s.c.meta.State() }
+
+// RefreshMetadata fetches a game's metadata and art again.
+func (s *LibraryService) RefreshMetadata(id int64) error {
+	if _, ok := s.c.Lib.Get(id); !ok {
+		return library.ErrNotFound
+	}
+	s.c.meta.queueNow(id)
+	return nil
+}
+
+// SearchSteam looks up titles on the Steam store, to pick the right game.
+func (s *LibraryService) SearchSteam(query string) ([]meta.StoreHit, error) {
+	if len(query) > 120 {
+		query = query[:120]
+	}
+	ctx, cancel := context.WithTimeout(s.c.ctx, 20*time.Second)
+	defer cancel()
+	hits, err := s.c.meta.client.SearchSteam(ctx, query)
+	if hits == nil {
+		hits = []meta.StoreHit{}
+	}
+	return hits, err
+}
+
+// SetMatch says which game this is: a Steam app and its name. The choice
+// is kept across scans, and metadata is fetched for it.
+func (s *LibraryService) SetMatch(id int64, steamAppID int, name string) (library.Game, error) {
+	name = strings.TrimSpace(name)
+	if steamAppID <= 0 || name == "" || len(name) > 200 {
+		return library.Game{}, errors.New("choose a game from the list")
+	}
+	g, err := s.update(id, func(g *library.Game) {
+		g.Confirmed, g.NeedsReview = true, false
+		g.SteamAppID, g.MetaAppID = steamAppID, 0
+		g.Title, g.SortTitle = name, scan.SortTitle(name)
+		if g.CustomTitle != "" {
+			g.SortTitle = scan.SortTitle(g.CustomTitle)
+		}
+		g.MatchHow, g.Confidence = "Chosen by you", 100
+		g.Meta = nil
+	})
+	if err == nil {
+		s.c.meta.queueNow(id)
+	}
+	return g, err
+}
+
 // OpenFolder shows the game's folder in Explorer.
 func (s *LibraryService) OpenFolder(id int64) error {
 	g, ok := s.c.Lib.Get(id)
@@ -236,6 +286,25 @@ func (s *SettingsService) AutoFolders() []string {
 		f = []string{}
 	}
 	return f
+}
+
+// HasSteamGridDBKey reports whether a SteamGridDB key is stored.
+func (s *SettingsService) HasSteamGridDBKey() bool { return platform.LoadSecret(sgdbSecret) != "" }
+
+// SetSteamGridDBKey stores (or with "", removes) the SteamGridDB API key,
+// encrypted for this Windows user, and fetches art the stores lacked.
+func (s *SettingsService) SetSteamGridDBKey(key string) error {
+	key = strings.TrimSpace(key)
+	if len(key) > 128 || strings.ContainsAny(key, " \t\r\n") {
+		return errors.New("that doesn't look like a SteamGridDB API key")
+	}
+	if err := platform.SaveSecret(sgdbSecret, key); err != nil {
+		return err
+	}
+	if key != "" {
+		s.c.meta.queueMissing()
+	}
+	return nil
 }
 
 // OpenLog shows the log file's folder.
