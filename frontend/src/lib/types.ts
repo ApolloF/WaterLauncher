@@ -103,6 +103,18 @@ export interface StoreHit {
   image: string;
 }
 
+export type PadKind = "playstation" | "xbox" | "nintendo" | "other";
+
+export interface PadState {
+  connected: boolean;
+  name: string;
+  kind: PadKind;
+  dualSense: boolean;
+  battery: number; // -1 unknown
+  wireless: boolean;
+  error?: string;
+}
+
 export interface AppInfo {
   version: string;
   dataDir: string;

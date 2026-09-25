@@ -7,12 +7,18 @@
 
   let { onclose }: { onclose: () => void } = $props();
 
-  type Tab = "general" | "library" | "about";
+  type Tab = "general" | "library" | "bigpicture" | "about";
   let tab = $state<Tab>("library");
   const tabs: { id: Tab; label: string }[] = [
     { id: "general", label: "General" },
     { id: "library", label: "Library" },
+    { id: "bigpicture", label: "Big picture" },
     { id: "about", label: "About" },
+  ];
+  const layouts: { id: Settings["bigPictureLayout"]; label: string; note: string }[] = [
+    { id: "deck", label: "Deck", note: "Side rail and rows of games" },
+    { id: "console", label: "Console", note: "One row over full-screen art" },
+    { id: "orbit", label: "Orbit", note: "An animated honeycomb" },
   ];
 
   let autoFolders = $state<string[]>([]);
@@ -128,6 +134,37 @@
               </form>
             {/if}
           </div>
+        {:else if tab === "bigpicture"}
+          <div class="group">
+            <span class="glabel">Layout</span>
+            <div class="layouts">
+              {#each layouts as l (l.id)}
+                <button type="button" class="layout" class:on={s.bigPictureLayout === l.id} aria-pressed={s.bigPictureLayout === l.id} onclick={() => set({ bigPictureLayout: l.id })}>
+                  <span class="thumb {l.id}" aria-hidden="true">
+                    {#if l.id === "deck"}<i class="rail"></i><i class="a"></i><i class="b"></i><i class="c"></i><i class="d"></i><i class="e"></i>
+                    {:else if l.id === "console"}<i class="t1"></i><i class="t2"></i><i class="t3"></i><i class="t4"></i><i class="bar"></i><i class="btn"></i>
+                    {:else}<i class="o0"></i><i class="o1"></i><i class="o2"></i><i class="o3"></i><i class="o4"></i><i class="o5"></i><i class="o6"></i>{/if}
+                  </span>
+                  <span class="lname">{l.label}{#if l.id === "deck"}<span class="def">Default</span>{/if}</span>
+                  <span class="lnote">{l.note}</span>
+                </button>
+              {/each}
+            </div>
+            <div class="seg" role="group" aria-label="Button prompts">
+              {#each [["auto", "Prompts: auto"], ["playstation", "PlayStation"], ["xbox", "Xbox"]] as [id, label] (id)}
+                <button type="button" class:on={s.glyphs === id} aria-pressed={s.glyphs === id} onclick={() => set({ glyphs: id as Settings["glyphs"] })}>{label}</button>
+              {/each}
+            </div>
+          </div>
+          <div class="group">
+            <Toggle checked={s.openBigPictureOnController} title="Open big picture when a controller connects" detail="Switches over as soon as you pick one up." onchange={(v) => set({ openBigPictureOnController: v })} />
+            <Toggle checked={s.startInBigPicture} title="Start in big picture" detail="Skip the desktop window when WaterLauncher starts." onchange={(v) => set({ startInBigPicture: v })} />
+            <Toggle checked={s.psButton} title="PS / Xbox button opens WaterLauncher" detail="Also from other apps. Turn off Steam's own guide-button shortcut to avoid both opening." onchange={(v) => set({ psButton: v })} />
+            <Toggle checked={s.haptics} title="Haptics while browsing" detail="Light ticks as you move between games." onchange={(v) => set({ haptics: v })} />
+            <Toggle checked={s.lightbar} title="Lightbar follows the game" detail="Tints the DualSense to the selected game's colour." onchange={(v) => set({ lightbar: v })} />
+            <Toggle checked={s.sounds} title="Navigation sounds" detail="Soft clicks as you move." onchange={(v) => set({ sounds: v })} />
+          </div>
+          <p class="hint">Open big picture with the button in the sidebar, F11, or the PS / Xbox button.</p>
         {:else}
           <dl class="kv">
             <dt>Version</dt>
@@ -367,6 +404,81 @@
     gap: 8px;
     color: var(--accent-text);
     font-weight: 600;
+  }
+  .layouts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .layout {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--surface-2);
+    text-align: left;
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .layout.on {
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  .thumb {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #0a0e13;
+  }
+  .thumb.console {
+    background: radial-gradient(120% 120% at 70% 30%, oklch(0.55 0.12 40), oklch(0.2 0.05 20));
+  }
+  .thumb.orbit {
+    background: #000;
+  }
+  .thumb i {
+    position: absolute;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.35);
+  }
+  .deck .rail { left: 0; top: 0; bottom: 0; width: 8%; border-radius: 0; background: #1a2430; }
+  .deck .a { left: 14%; top: 12%; width: 30%; height: 30%; background: #fff; }
+  .deck .b { left: 47%; top: 12%; width: 30%; height: 30%; }
+  .deck .c { left: 80%; top: 12%; width: 30%; height: 30%; }
+  .deck .d { left: 14%; top: 52%; width: 22%; height: 22%; }
+  .deck .e { left: 39%; top: 52%; width: 22%; height: 22%; }
+  .console .t1 { left: 7%; top: 12%; width: 24%; height: 24%; background: #fff; }
+  .console .t2 { left: 34%; top: 12%; width: 11%; height: 18%; }
+  .console .t3 { left: 48%; top: 12%; width: 11%; height: 18%; }
+  .console .t4 { left: 62%; top: 12%; width: 11%; height: 18%; }
+  .console .bar { left: 7%; top: 56%; width: 38%; height: 9%; background: #fff; }
+  .console .btn { left: 7%; top: 72%; width: 18%; height: 11%; border-radius: 99px; background: #fff; }
+  .orbit i { border-radius: 50%; transform: translate(-50%, -50%); aspect-ratio: 1; }
+  .orbit .o0 { left: 50%; top: 48%; width: 17%; background: #fff; }
+  .orbit .o1 { left: 34%; top: 48%; width: 11%; background: oklch(0.7 0.12 30); }
+  .orbit .o2 { left: 66%; top: 48%; width: 11%; background: oklch(0.7 0.12 250); }
+  .orbit .o3 { left: 42%; top: 24%; width: 10%; background: oklch(0.7 0.12 150); }
+  .orbit .o4 { left: 58%; top: 24%; width: 10%; background: oklch(0.7 0.12 320); }
+  .orbit .o5 { left: 42%; top: 72%; width: 10%; background: oklch(0.7 0.12 200); }
+  .orbit .o6 { left: 58%; top: 72%; width: 10%; background: oklch(0.7 0.12 90); }
+  .lname {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px;
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .def {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .lnote {
+    padding: 0 4px 4px;
+    font-size: 13px;
+    color: var(--muted);
   }
   .kv {
     display: grid;

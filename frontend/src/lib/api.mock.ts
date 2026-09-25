@@ -156,5 +156,18 @@ export const mockApi: Api = {
   onMetaState() {
     return () => {};
   },
-  window: { minimise() {}, toggleMaximise() {}, close() {} },
+  window: { minimise() {}, toggleMaximise() {}, close() {}, fullscreen() {} },
+  pad: {
+    async state() {
+      return { connected: true, name: "DualSense Wireless Controller", kind: "playstation", dualSense: true, battery: 82, wireless: true };
+    },
+    rumble() {},
+    setLight() {},
+    onAction() {
+      return () => {};
+    },
+    onState() {
+      return () => {};
+    },
+  },
 };

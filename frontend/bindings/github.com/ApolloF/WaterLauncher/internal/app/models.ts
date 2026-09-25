@@ -20,6 +20,14 @@ export interface MetaState {
 }
 
 /**
+ * PadAction is one controller action.
+ */
+export interface PadAction {
+    "action": string;
+    "repeat": boolean;
+}
+
+/**
  * ScanState tells the frontend what the scanner is doing.
  */
 export interface ScanState {

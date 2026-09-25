@@ -1,0 +1,167 @@
+package pad
+
+import (
+	"testing"
+	"time"
+	"unsafe"
+)
+
+// sdlVirtualJoystickDesc mirrors SDL_VirtualJoystickDesc (SDL 3.4, x64).
+type sdlVirtualJoystickDesc struct {
+	Version           uint32
+	Type              uint16
+	_                 uint16
+	Vendor, Product   uint16
+	NAxes, NButtons   uint16
+	NBalls, NHats     uint16
+	NTouch, NSensors  uint16
+	_                 [2]uint16
+	ButtonMask        uint32
+	AxisMask          uint32
+	_                 uint32
+	Name              *byte
+	Touchpads         uintptr
+	Sensors           uintptr
+	Userdata          uintptr
+	Update            uintptr
+	SetPlayerIndex    uintptr
+	Rumble            uintptr
+	RumbleTriggers    uintptr
+	SetLED            uintptr
+	SendEffect        uintptr
+	SetSensorsEnabled uintptr
+	Cleanup           uintptr
+}
+
+// A virtual gamepad made by SDL goes through the same path as a real one:
+// it is detected, opened, and its buttons become actions, with repeat for
+// a held direction.
+func TestVirtualGamepad(t *testing.T) {
+	if unsafe.Sizeof(sdlVirtualJoystickDesc{}) != 136 {
+		t.Fatalf("descriptor size %d, want 136", unsafe.Sizeof(sdlVirtualJoystickDesc{}))
+	}
+	actions := make(chan string, 64)
+	states := make(chan State, 16)
+	m := Start(func(a string, repeat bool) {
+		if repeat {
+			a += "+"
+		}
+		actions <- a
+	}, func(s State) { states <- s })
+	defer m.Stop()
+
+	var joy uintptr
+	name := cstr("WaterLauncher Test Pad")
+	run := func(fn func(s *sdl)) {
+		done := make(chan struct{})
+		deadline := time.After(3 * time.Second)
+		for {
+			select {
+			case m.cmds <- func(s *sdl) { fn(s); close(done) }:
+				select {
+				case <-done:
+					return
+				case <-deadline:
+					t.Fatal("SDL thread didn't run the command")
+				}
+			case <-deadline:
+				t.Fatal("SDL thread not ready")
+			}
+		}
+	}
+	time.Sleep(300 * time.Millisecond) // SDL_Init
+	run(func(s *sdl) {
+		attach, err := s.dll.FindProc("SDL_AttachVirtualJoystick")
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		open, _ := s.dll.FindProc("SDL_OpenJoystick")
+		d := sdlVirtualJoystickDesc{Type: 1, NAxes: 6, NButtons: 15, ButtonMask: 1<<15 - 1, AxisMask: 1<<6 - 1, Name: name}
+		d.Version = uint32(unsafe.Sizeof(d))
+		id, _, _ := attach.Call(uintptr(unsafe.Pointer(&d)))
+		if uint32(id) == 0 {
+			t.Errorf("attach failed: %s", s.errorText())
+			return
+		}
+		joy, _, _ = open.Call(id)
+	})
+	if joy == 0 {
+		t.Fatal("virtual joystick not opened")
+	}
+
+	waitState := func(want func(State) bool) State {
+		deadline := time.After(3 * time.Second)
+		for {
+			select {
+			case st := <-states:
+				if want(st) {
+					return st
+				}
+			case <-deadline:
+				t.Fatalf("state never matched; last %+v", m.State())
+			}
+		}
+	}
+	st := waitState(func(s State) bool { return s.Connected })
+	if st.Name != "WaterLauncher Test Pad" {
+		t.Errorf("name = %q", st.Name)
+	}
+
+	press := func(button int, down bool) {
+		run(func(s *sdl) {
+			set, _ := s.dll.FindProc("SDL_SetJoystickVirtualButton")
+			b := uintptr(0)
+			if down {
+				b = 1
+			}
+			set.Call(joy, uintptr(button), b)
+		})
+	}
+	expect := func(want string) {
+		select {
+		case a := <-actions:
+			if a != want {
+				t.Errorf("action %q, want %q", a, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Errorf("no action, want %q", want)
+		}
+	}
+
+	press(0, true) // SOUTH: ✕ / A
+	expect(Confirm)
+	press(0, false)
+	press(1, true) // EAST: ○ / B
+	expect(Back)
+	press(1, false)
+	press(5, true) // GUIDE: PS
+	expect(Home)
+	press(5, false)
+
+	// Holding D-pad down repeats after the delay.
+	press(12, true)
+	expect(Down)
+	time.Sleep(repeatDelay + 3*repeatEvery)
+	press(12, false)
+	repeats := 0
+	for len(actions) > 0 {
+		if <-actions == Down+"+" {
+			repeats++
+		}
+	}
+	if repeats < 2 {
+		t.Errorf("%d repeats, want at least 2", repeats)
+	}
+
+	// Unplugging it is noticed.
+	run(func(s *sdl) {
+		detach, _ := s.dll.FindProc("SDL_DetachVirtualJoystick")
+		closeJ, _ := s.dll.FindProc("SDL_CloseJoystick")
+		for id := range pads {
+			detach.Call(uintptr(id))
+		}
+		closeJ.Call(joy)
+	})
+	waitState(func(s State) bool { return !s.Connected })
+}

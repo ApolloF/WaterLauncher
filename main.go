@@ -34,6 +34,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(app.NewLibraryService(core)),
 			application.NewService(app.NewSettingsService(core)),
+			application.NewService(app.NewPadService(core)),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
