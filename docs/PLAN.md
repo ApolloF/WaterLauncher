@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **in progress**: v0.1 to v0.3 approved and being built (2026-09-25).
+Status: **v0.1 to v0.3 released** as prereleases (2026-09-25). v0.4 (game launching and play tracking) is next, waiting for the go.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
