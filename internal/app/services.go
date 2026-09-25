@@ -1,0 +1,254 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/ApolloF/WaterLauncher/internal/library"
+	"github.com/ApolloF/WaterLauncher/internal/logx"
+	"github.com/ApolloF/WaterLauncher/internal/platform"
+	"github.com/ApolloF/WaterLauncher/internal/scan"
+	"github.com/ApolloF/WaterLauncher/internal/settings"
+	"github.com/wailsapp/wails/v3/pkg/application"
+)
+
+// LibraryService is the game library, as the frontend sees it.
+type LibraryService struct{ c *Core }
+
+// NewLibraryService binds the library to core.
+func NewLibraryService(c *Core) *LibraryService { return &LibraryService{c} }
+
+// ServiceStartup starts scanning once the app runs.
+func (s *LibraryService) ServiceStartup(context.Context, application.ServiceOptions) error {
+	s.c.Start()
+	return nil
+}
+
+// ServiceShutdown saves the library.
+func (s *LibraryService) ServiceShutdown() error {
+	s.c.Stop()
+	return nil
+}
+
+// Games returns every game in the library.
+func (s *LibraryService) Games() []library.Game { return s.c.Lib.Games() }
+
+// Game returns one game.
+func (s *LibraryService) Game(id int64) (library.Game, error) {
+	g, ok := s.c.Lib.Get(id)
+	if !ok {
+		return g, library.ErrNotFound
+	}
+	return g, nil
+}
+
+// ScanState reports what the scanner is doing.
+func (s *LibraryService) ScanState() ScanState { return s.c.State() }
+
+// Rescan looks for games again now.
+func (s *LibraryService) Rescan() { s.c.RequestScan() }
+
+// SetFavorite marks or unmarks a favorite.
+func (s *LibraryService) SetFavorite(id int64, on bool) (library.Game, error) {
+	return s.update(id, func(g *library.Game) { g.Favorite = on })
+}
+
+// SetHidden hides a game from the library views (or shows it again).
+func (s *LibraryService) SetHidden(id int64, on bool) (library.Game, error) {
+	return s.update(id, func(g *library.Game) { g.Hidden = on })
+}
+
+// SetPadMode picks how a controller reaches the game: "" (auto), "native" or "steam".
+func (s *LibraryService) SetPadMode(id int64, mode string) (library.Game, error) {
+	switch mode {
+	case "", "auto":
+		mode = ""
+	case "native", "steam":
+	default:
+		return library.Game{}, errors.New("unknown controller mode")
+	}
+	return s.update(id, func(g *library.Game) { g.PadMode = mode })
+}
+
+// Rename sets the title shown for a game ("" restores the found one).
+func (s *LibraryService) Rename(id int64, title string) (library.Game, error) {
+	title = strings.TrimSpace(title)
+	if len(title) > 200 {
+		return library.Game{}, errors.New("title is too long")
+	}
+	return s.update(id, func(g *library.Game) {
+		g.CustomTitle = title
+		if title != "" {
+			g.SortTitle = scan.SortTitle(title)
+		} else {
+			g.SortTitle = scan.SortTitle(g.Title)
+		}
+	})
+}
+
+// ConfirmMatch accepts the game's identity, so it leaves Found on this PC.
+func (s *LibraryService) ConfirmMatch(id int64) (library.Game, error) {
+	return s.update(id, func(g *library.Game) { g.Confirmed, g.NeedsReview = true, false })
+}
+
+// ChooseExe lets the user pick the executable that starts the game.
+func (s *LibraryService) ChooseExe(id int64) (library.Game, error) {
+	g, ok := s.c.Lib.Get(id)
+	if !ok {
+		return g, library.ErrNotFound
+	}
+	d := application.Get().Dialog.OpenFile().
+		SetTitle("Choose the program that starts "+g.DisplayTitle()).
+		CanChooseFiles(true).CanChooseDirectories(false).
+		AddFilter("Programs", "*.exe")
+	if g.Dir != "" {
+		d.SetDirectory(g.Dir)
+	}
+	p, err := d.PromptForSingleSelection()
+	if err != nil || p == "" {
+		return g, err
+	}
+	p = filepath.Clean(p)
+	if !strings.EqualFold(filepath.Ext(p), ".exe") || !platform.IsFile(p) {
+		return g, errors.New("please choose a program (.exe)")
+	}
+	return s.update(id, func(g *library.Game) {
+		g.Exe, g.Args, g.WorkDir, g.UserExe, g.LaunchURI = p, "", filepath.Dir(p), true, ""
+	})
+}
+
+// Play starts a game.
+func (s *LibraryService) Play(id int64) error {
+	g, ok := s.c.Lib.Get(id)
+	if !ok {
+		return library.ErrNotFound
+	}
+	if !g.Installed {
+		return errors.New(g.DisplayTitle() + " isn't installed")
+	}
+	var err error
+	switch {
+	case g.LaunchURI != "":
+		err = platform.OpenURI(g.LaunchURI)
+	case g.Exe != "":
+		if !platform.Within(g.Dir, g.Exe) && !g.UserExe {
+			return errors.New("the game's program is outside its folder")
+		}
+		_, err = platform.StartProcess(g.Exe, g.Args, g.WorkDir)
+	default:
+		err = errors.New("no program found to start " + g.DisplayTitle() + ". Choose one in the game's options.")
+	}
+	if err != nil {
+		logx.Printf("play %q: %v", g.DisplayTitle(), err)
+		return err
+	}
+	logx.Printf("play %q", g.DisplayTitle())
+	_, _ = s.update(id, func(g *library.Game) { g.LastPlayed = time.Now().Unix() })
+	return nil
+}
+
+// OpenFolder shows the game's folder in Explorer.
+func (s *LibraryService) OpenFolder(id int64) error {
+	g, ok := s.c.Lib.Get(id)
+	if !ok {
+		return library.ErrNotFound
+	}
+	return platform.ShowInExplorer(g.Dir)
+}
+
+func (s *LibraryService) update(id int64, fn func(*library.Game)) (library.Game, error) {
+	g, err := s.c.Lib.Update(id, fn)
+	if err == nil {
+		s.c.emit(EventLibraryChanged, "update")
+	}
+	return g, err
+}
+
+// SettingsService is the user's preferences.
+type SettingsService struct{ c *Core }
+
+// NewSettingsService binds settings to core.
+func NewSettingsService(c *Core) *SettingsService { return &SettingsService{c} }
+
+// AppInfo describes this build.
+type AppInfo struct {
+	Version string `json:"version"`
+	DataDir string `json:"dataDir"`
+	LogFile string `json:"logFile"`
+}
+
+// Info returns the version and where data is kept.
+func (s *SettingsService) Info() AppInfo {
+	return AppInfo{Version: s.c.Version, DataDir: platform.AppDir(), LogFile: logx.Path()}
+}
+
+// Get returns the settings.
+func (s *SettingsService) Get() settings.Settings { return s.c.Settings.Get() }
+
+// Save stores new settings; library settings trigger a scan.
+func (s *SettingsService) Save(v settings.Settings) (settings.Settings, error) {
+	old := s.c.Settings.Get()
+	saved, err := s.c.Settings.Set(v)
+	if err != nil {
+		return saved, err
+	}
+	if !sameStrings(old.Folders, saved.Folders) || old.AutoFolders != saved.AutoFolders ||
+		old.DetectUnofficial != saved.DetectUnofficial || old.ReviewUncertain != saved.ReviewUncertain {
+		s.c.RequestScan()
+	}
+	return saved, nil
+}
+
+// AddFolder asks for a folder whose subfolders are games and adds it.
+func (s *SettingsService) AddFolder() (settings.Settings, error) {
+	p, err := application.Get().Dialog.OpenFile().
+		SetTitle("Choose a folder that holds games").
+		CanChooseDirectories(true).CanChooseFiles(false).CanCreateDirectories(false).
+		PromptForSingleSelection()
+	if err != nil || p == "" {
+		return s.c.Settings.Get(), err
+	}
+	v := s.c.Settings.Get()
+	v.Folders = append(v.Folders, p)
+	return s.Save(v)
+}
+
+// RemoveFolder stops looking in a watched folder.
+func (s *SettingsService) RemoveFolder(path string) (settings.Settings, error) {
+	v := s.c.Settings.Get()
+	var keep []string
+	for _, f := range v.Folders {
+		if !strings.EqualFold(filepath.Clean(f), filepath.Clean(path)) {
+			keep = append(keep, f)
+		}
+	}
+	v.Folders = keep
+	return s.Save(v)
+}
+
+// AutoFolders lists the common game folders found on this PC.
+func (s *SettingsService) AutoFolders() []string {
+	f := scan.AutoFolders()
+	if f == nil {
+		f = []string{}
+	}
+	return f
+}
+
+// OpenLog shows the log file's folder.
+func (s *SettingsService) OpenLog() error { return platform.ShowInExplorer(filepath.Dir(logx.Path())) }
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !strings.EqualFold(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}

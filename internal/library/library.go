@@ -1,0 +1,317 @@
+// Package library keeps WaterLauncher's game library: what scans found,
+// merged with what the user set (favorites, hidden, titles, controller
+// mode, playtime). It lives in memory and is saved as one JSON file with
+// atomic writes; even thousands of games stay a few megabytes.
+package library
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Game is one game in the library.
+type Game struct {
+	ID          int64  `json:"id"`
+	Key         string `json:"key"` // identity: the install folder, lower-cased
+	Title       string `json:"title"`
+	CustomTitle string `json:"customTitle,omitempty"`
+	SortTitle   string `json:"sortTitle"`
+
+	Source      string `json:"source"`      // steam, epic, gog, ea, ubisoft, battlenet, xbox, installer, shortcut, folder
+	SourceLabel string `json:"sourceLabel"` // "Steam", "Unofficial · RUNE", "Repack · DODI", …
+	Unofficial  bool   `json:"unofficial"`
+	Emulator    string `json:"emulator,omitempty"`
+	Repacker    string `json:"repacker,omitempty"`
+	DRMFree     string `json:"drmFree,omitempty"`
+
+	Installed bool   `json:"installed"`
+	Dir       string `json:"dir"`
+	Exe       string `json:"exe,omitempty"`
+	Args      string `json:"args,omitempty"`
+	WorkDir   string `json:"workDir,omitempty"`
+	LaunchURI string `json:"launchUri,omitempty"`
+	UserExe   bool   `json:"userExe,omitempty"` // the user picked the executable; scans leave it alone
+	SizeBytes int64  `json:"sizeBytes,omitempty"`
+
+	SteamAppID int    `json:"steamAppId,omitempty"`
+	GogID      string `json:"gogId,omitempty"`
+	EpicApp    string `json:"epicApp,omitempty"`
+
+	How         string `json:"how"`        // how the game was found
+	MatchHow    string `json:"matchHow"`   // how its identity was established
+	Confidence  int    `json:"confidence"` // 0–100
+	NeedsReview bool   `json:"needsReview"`
+	Confirmed   bool   `json:"confirmed,omitempty"` // the user confirmed the match
+
+	AddedAt    int64 `json:"addedAt"`           // unix seconds
+	Initial    bool  `json:"initial,omitempty"` // found by the very first scan, so not a "new" find
+	SeenAt     int64 `json:"seenAt"`
+	LastPlayed int64 `json:"lastPlayed,omitempty"`
+	Playtime   int64 `json:"playtime,omitempty"` // seconds, tracked by WaterLauncher
+
+	// What the store recorded (Steam), refreshed by every scan. The
+	// interface shows whichever of the two is larger.
+	StorePlaytime   int64 `json:"storePlaytime,omitempty"`
+	StoreLastPlayed int64 `json:"storeLastPlayed,omitempty"`
+
+	Favorite bool   `json:"favorite,omitempty"`
+	Hidden   bool   `json:"hidden,omitempty"`
+	PadMode  string `json:"padMode,omitempty"` // "" = auto, "native", "steam"
+
+	Meta *Meta `json:"meta,omitempty"`
+}
+
+// Meta is store metadata and art, filled in by the metadata service.
+type Meta struct {
+	Description  string   `json:"description,omitempty"`
+	Developers   []string `json:"developers,omitempty"`
+	Publishers   []string `json:"publishers,omitempty"`
+	Genres       []string `json:"genres,omitempty"`
+	ReleaseDate  string   `json:"releaseDate,omitempty"`
+	ReleaseYear  int      `json:"releaseYear,omitempty"`
+	DualSense    string   `json:"dualSense,omitempty"` // "yes", "no", "" (unknown)
+	Controller   string   `json:"controller,omitempty"`
+	Cover        string   `json:"cover,omitempty"` // local art URLs (/art/…)
+	Hero         string   `json:"hero,omitempty"`
+	Logo         string   `json:"logo,omitempty"`
+	Icon         string   `json:"icon,omitempty"`
+	Accent       string   `json:"accent,omitempty"` // CSS colour from the art
+	FetchedAt    int64    `json:"fetchedAt,omitempty"`
+	Source       string   `json:"source,omitempty"` // where the metadata came from
+	ArtOverrides []string `json:"artOverrides,omitempty"`
+}
+
+// DisplayTitle is the user's title if set, else the found one.
+func (g *Game) DisplayTitle() string {
+	if g.CustomTitle != "" {
+		return g.CustomTitle
+	}
+	return g.Title
+}
+
+// Found is one game a scan found, already identified.
+type Found struct {
+	Key, Title, SortTitle       string
+	Source, SourceLabel         string
+	Unofficial                  bool
+	Emulator, Repacker, DRMFree string
+	Dir, Exe, Args, WorkDir     string
+	LaunchURI                   string
+	SizeBytes                   int64
+	SteamAppID                  int
+	GogID, EpicApp              string
+	How, MatchHow               string
+	Confidence                  int
+	NeedsReview                 bool
+	StorePlaytime               int64
+	StoreLastPlayed             int64
+}
+
+type fileData struct {
+	Version int     `json:"version"`
+	NextID  int64   `json:"nextId"`
+	Games   []*Game `json:"games"`
+}
+
+// Store is the library. Safe for concurrent use.
+type Store struct {
+	path  string
+	mu    sync.RWMutex
+	next  int64
+	games map[int64]*Game
+	byKey map[string]*Game
+	saveT *time.Timer
+}
+
+// Open loads the library at path, or starts an empty one.
+func Open(path string) (*Store, error) {
+	s := &Store{path: path, next: 1, games: map[int64]*Game{}, byKey: map[string]*Game{}}
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return s, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var d fileData
+	if err := json.Unmarshal(b, &d); err != nil {
+		// Keep the damaged file for inspection and start fresh.
+		_ = os.Rename(path, path+".broken-"+time.Now().Format("20060102-150405"))
+		return s, nil
+	}
+	for _, g := range d.Games {
+		if g == nil || g.ID <= 0 || g.Key == "" || s.games[g.ID] != nil || s.byKey[g.Key] != nil {
+			continue
+		}
+		s.games[g.ID] = g
+		s.byKey[g.Key] = g
+		if g.ID >= s.next {
+			s.next = g.ID + 1
+		}
+	}
+	if d.NextID > s.next {
+		s.next = d.NextID
+	}
+	return s, nil
+}
+
+// Games returns copies of all games, sorted by title.
+func (s *Store) Games() []Game {
+	s.mu.RLock()
+	out := make([]Game, 0, len(s.games))
+	for _, g := range s.games {
+		out = append(out, copyGame(g))
+	}
+	s.mu.RUnlock()
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SortTitle != out[j].SortTitle {
+			return out[i].SortTitle < out[j].SortTitle
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// Get returns a copy of one game.
+func (s *Store) Get(id int64) (Game, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.games[id]
+	if !ok {
+		return Game{}, false
+	}
+	return copyGame(g), true
+}
+
+// ErrNotFound means no game has that id.
+var ErrNotFound = errors.New("game not found")
+
+// Update changes one game and schedules a save.
+func (s *Store) Update(id int64, fn func(g *Game)) (Game, error) {
+	s.mu.Lock()
+	g, ok := s.games[id]
+	if !ok {
+		s.mu.Unlock()
+		return Game{}, ErrNotFound
+	}
+	fn(g)
+	out := copyGame(g)
+	s.scheduleSaveLocked()
+	s.mu.Unlock()
+	return out, nil
+}
+
+// ApplyScan merges a scan into the library. Found games are added or
+// refreshed; games no longer found are kept (with their playtime) but
+// marked not installed. User choices are never overwritten.
+func (s *Store) ApplyScan(found []Found, now time.Time) (added, removed int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ts := now.Unix()
+	first := len(s.games) == 0
+	seen := map[string]bool{}
+	for _, f := range found {
+		seen[f.Key] = true
+		g := s.byKey[f.Key]
+		if g == nil {
+			g = &Game{ID: s.next, Key: f.Key, AddedAt: ts, Initial: first}
+			s.next++
+			s.games[g.ID] = g
+			s.byKey[g.Key] = g
+			added++
+		}
+		g.Title, g.SortTitle = f.Title, f.SortTitle
+		if g.CustomTitle != "" {
+			g.SortTitle = strings.ToLower(g.CustomTitle)
+		}
+		g.Source, g.SourceLabel = f.Source, f.SourceLabel
+		g.Unofficial, g.Emulator, g.Repacker, g.DRMFree = f.Unofficial, f.Emulator, f.Repacker, f.DRMFree
+		g.Installed, g.Dir, g.LaunchURI, g.SizeBytes = true, f.Dir, f.LaunchURI, f.SizeBytes
+		if !g.UserExe {
+			g.Exe, g.Args, g.WorkDir = f.Exe, f.Args, f.WorkDir
+		}
+		if !g.Confirmed {
+			if g.SteamAppID != f.SteamAppID && g.Meta != nil {
+				g.Meta = nil // a different game now: fetch its metadata again
+			}
+			g.SteamAppID, g.GogID = f.SteamAppID, f.GogID
+			g.MatchHow, g.Confidence, g.NeedsReview = f.MatchHow, f.Confidence, f.NeedsReview
+		}
+		g.EpicApp, g.How, g.SeenAt = f.EpicApp, f.How, ts
+		g.StorePlaytime, g.StoreLastPlayed = f.StorePlaytime, f.StoreLastPlayed
+	}
+	for k, g := range s.byKey {
+		if !seen[k] && g.Installed {
+			g.Installed = false
+			removed++
+		}
+	}
+	s.scheduleSaveLocked()
+	return added, removed
+}
+
+func (s *Store) scheduleSaveLocked() {
+	if s.saveT != nil {
+		s.saveT.Stop()
+	}
+	s.saveT = time.AfterFunc(time.Second, func() { _ = s.Flush() })
+}
+
+// Flush writes the library to disk now.
+func (s *Store) Flush() error {
+	s.mu.RLock()
+	d := fileData{Version: 1, NextID: s.next}
+	for _, g := range s.games {
+		c := copyGame(g)
+		d.Games = append(d.Games, &c)
+	}
+	s.mu.RUnlock()
+	sort.Slice(d.Games, func(i, j int) bool { return d.Games[i].ID < d.Games[j].ID })
+	b, err := json.MarshalIndent(d, "", " ")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(s.path, b)
+}
+
+func writeAtomic(path string, b []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func copyGame(g *Game) Game {
+	c := *g
+	if g.Meta != nil {
+		m := *g.Meta
+		m.Developers = append([]string(nil), g.Meta.Developers...)
+		m.Publishers = append([]string(nil), g.Meta.Publishers...)
+		m.Genres = append([]string(nil), g.Meta.Genres...)
+		m.ArtOverrides = append([]string(nil), g.Meta.ArtOverrides...)
+		c.Meta = &m
+	}
+	return c
+}

@@ -1,0 +1,8 @@
+.task
+bin
+*.syso
+frontend/dist
+frontend/node_modules
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+# Local tool settings (absolute paths on one machine)
+.claude/

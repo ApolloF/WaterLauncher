@@ -1,0 +1,285 @@
+// Package app wires WaterLauncher together and holds the services the
+// frontend calls.
+package app
+
+import (
+	"context"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/ApolloF/WaterLauncher/internal/identify"
+	"github.com/ApolloF/WaterLauncher/internal/library"
+	"github.com/ApolloF/WaterLauncher/internal/logx"
+	"github.com/ApolloF/WaterLauncher/internal/platform"
+	"github.com/ApolloF/WaterLauncher/internal/scan"
+	"github.com/ApolloF/WaterLauncher/internal/settings"
+	"github.com/fsnotify/fsnotify"
+	"github.com/wailsapp/wails/v3/pkg/application"
+)
+
+// Events the frontend listens for.
+const (
+	EventLibraryChanged = "library:changed"
+	EventScanState      = "scan:state"
+)
+
+// ScanState tells the frontend what the scanner is doing.
+type ScanState struct {
+	Running  bool   `json:"running"`
+	LastScan int64  `json:"lastScan"` // unix seconds
+	TookMs   int64  `json:"tookMs"`
+	Games    int    `json:"games"`
+	Added    int    `json:"added"`
+	Known    int    `json:"known"` // titles in the game database; 0 until it's downloaded
+	Error    string `json:"error,omitempty"`
+}
+
+func init() {
+	application.RegisterEvent[ScanState](EventScanState)
+	application.RegisterEvent[string](EventLibraryChanged)
+}
+
+// Core is shared by the services.
+type Core struct {
+	Version  string
+	Lib      *library.Store
+	Settings *settings.Store
+	Manifest *identify.Manager
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	scanMu  sync.Mutex // one scan at a time
+	stateMu sync.Mutex
+	state   ScanState
+	pending chan struct{}
+	watcher *fsnotify.Watcher
+}
+
+// NewCore opens the library and settings.
+func NewCore(version string) (*Core, error) {
+	lib, err := library.Open(filepath.Join(platform.AppDir(), "library.json"))
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Core{
+		Version: version, Lib: lib, Settings: settings.Open(settings.DefaultPath()),
+		Manifest: identify.NewManager(platform.CacheDir("manifest")),
+		ctx:      ctx, cancel: cancel, pending: make(chan struct{}, 1),
+	}, nil
+}
+
+// Start runs the first scan, keeps the game database fresh and watches
+// the folders games install into.
+func (c *Core) Start() {
+	go c.scanLoop()
+	c.RequestScan()
+	go func() {
+		if !c.Manifest.Stale() {
+			return
+		}
+		fresh, err := c.Manifest.Refresh(c.ctx)
+		if err != nil {
+			logx.Printf("game database refresh: %v", err)
+			return
+		}
+		if fresh {
+			logx.Printf("game database updated: %d titles", c.Manifest.Index().Len())
+			c.RequestScan() // identify again with the new data
+		}
+	}()
+	go func() {
+		t := time.NewTicker(30 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-c.ctx.Done():
+				return
+			case <-t.C:
+				c.RequestScan()
+			}
+		}
+	}()
+}
+
+// Stop ends background work and saves the library.
+func (c *Core) Stop() {
+	c.cancel()
+	if c.watcher != nil {
+		_ = c.watcher.Close()
+	}
+	if err := c.Lib.Flush(); err != nil {
+		logx.Printf("saving library: %v", err)
+	}
+}
+
+// RequestScan asks for a scan soon; requests while one runs coalesce.
+func (c *Core) RequestScan() {
+	select {
+	case c.pending <- struct{}{}:
+	default:
+	}
+}
+
+func (c *Core) scanLoop() {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-c.pending:
+			c.scanNow()
+		}
+	}
+}
+
+func (c *Core) scanNow() {
+	c.scanMu.Lock()
+	defer c.scanMu.Unlock()
+	c.setState(func(s *ScanState) { s.Running, s.Error = true, "" })
+	cfg := c.Settings.Get()
+	res := scan.Run(c.ctx, scan.Options{Folders: cfg.Folders, AutoFolders: cfg.AutoFolders, DetectUnofficial: cfg.DetectUnofficial})
+	if c.ctx.Err() != nil {
+		return
+	}
+	ix := c.Manifest.Index()
+	found := make([]library.Found, 0, len(res.Games))
+	for _, g := range res.Games {
+		found = append(found, toFound(g, ix.Identify(g), cfg))
+	}
+	added, removed := c.Lib.ApplyScan(found, time.Now())
+	logx.Printf("scan: %d games (%d new, %d gone) in %v", len(found), added, removed, res.Took.Round(time.Millisecond))
+	c.setState(func(s *ScanState) {
+		s.Running, s.LastScan, s.TookMs = false, time.Now().Unix(), res.Took.Milliseconds()
+		s.Games, s.Added, s.Known = len(found), added, ix.Len()
+	})
+	c.emit(EventLibraryChanged, "scan")
+	c.rewatch(cfg)
+}
+
+// toFound turns a scanned, identified candidate into a library record.
+func toFound(g scan.Candidate, m identify.Match, cfg settings.Settings) library.Found {
+	f := library.Found{
+		Key: platform.Key(g.Dir), Title: m.Title, SortTitle: scan.SortTitle(m.Title),
+		Source: string(g.Source), Emulator: g.Emulator, Repacker: g.Repacker, DRMFree: g.DRMFree,
+		Unofficial: g.Unofficial(), Dir: g.Dir, Exe: g.Exe, Args: g.Args, WorkDir: g.WorkDir,
+		LaunchURI: g.LaunchURI, SizeBytes: g.SizeBytes, SteamAppID: m.SteamAppID, GogID: m.GogID,
+		EpicApp: g.EpicApp, How: g.How, MatchHow: m.How, Confidence: m.Confidence,
+		StorePlaytime: g.StorePlaytime, StoreLastPlayed: g.StoreLastPlayed,
+	}
+	f.SourceLabel = sourceLabel(g)
+	f.NeedsReview = cfg.ReviewUncertain && m.Confidence < 70 && !g.Source.Store()
+	return f
+}
+
+var storeLabels = map[scan.Source]string{
+	scan.Steam: "Steam", scan.Epic: "Epic", scan.GOG: "GOG", scan.EA: "EA", scan.Ubisoft: "Ubisoft",
+	scan.BattleNet: "Battle.net", scan.Xbox: "Xbox", scan.Installer: "Standalone", scan.Shortcut: "Shortcut", scan.Folder: "Folder",
+}
+
+func sourceLabel(g scan.Candidate) string {
+	switch {
+	case g.Source.Store() && g.Emulator != "":
+		return storeLabels[g.Source] + " · modified"
+	case g.Source.Store():
+		return storeLabels[g.Source]
+	case g.Emulator != "":
+		return "Unofficial · " + g.Emulator
+	case g.Repacker != "":
+		return "Repack · " + g.Repacker
+	case g.DRMFree != "":
+		return "DRM-free · " + g.DRMFree
+	}
+	return storeLabels[g.Source]
+}
+
+func (c *Core) setState(fn func(*ScanState)) {
+	c.stateMu.Lock()
+	fn(&c.state)
+	s := c.state
+	c.stateMu.Unlock()
+	c.emit(EventScanState, s)
+}
+
+// State returns the scanner's state.
+func (c *Core) State() ScanState {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.state
+}
+
+func (c *Core) emit(name string, data any) {
+	if a := application.Get(); a != nil {
+		a.Event.Emit(name, data)
+	}
+}
+
+// rewatch watches the folders whose changes mean a game was installed or
+// removed; a change triggers a scan a few seconds later.
+func (c *Core) rewatch(cfg settings.Settings) {
+	if c.watcher == nil {
+		w, err := fsnotify.NewWatcher()
+		if err != nil {
+			logx.Printf("watcher: %v", err)
+			return
+		}
+		c.watcher = w
+		go c.watchLoop(w)
+	}
+	want := map[string]bool{}
+	add := func(d string) {
+		if d != "" && platform.IsDir(d) {
+			want[platform.Key(d)] = true
+			_ = c.watcher.Add(d)
+		}
+	}
+	for _, d := range scan.SteamWatchDirs() {
+		add(d)
+	}
+	add(scan.EpicManifestDir())
+	add(platform.Desktop)
+	add(platform.PublicDesktop)
+	for _, f := range cfg.Folders {
+		add(f)
+	}
+	if cfg.AutoFolders {
+		for _, f := range scan.AutoFolders() {
+			add(f)
+		}
+	}
+	for _, d := range c.watcher.WatchList() {
+		if !want[platform.Key(d)] {
+			_ = c.watcher.Remove(d)
+		}
+	}
+}
+
+func (c *Core) watchLoop(w *fsnotify.Watcher) {
+	var debounce *time.Timer
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case ev, ok := <-w.Events:
+			if !ok {
+				return
+			}
+			name := strings.ToLower(ev.Name)
+			// Steam rewrites manifests while downloading; only finished changes matter.
+			if strings.HasSuffix(name, ".tmp") || strings.Contains(name, `\downloading`) || strings.Contains(name, `\temp`) {
+				continue
+			}
+			if debounce != nil {
+				debounce.Stop()
+			}
+			debounce = time.AfterFunc(5*time.Second, c.RequestScan)
+		case err, ok := <-w.Errors:
+			if !ok {
+				return
+			}
+			logx.Printf("watcher: %v", err)
+		}
+	}
+}
