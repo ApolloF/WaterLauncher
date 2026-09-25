@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **decisions confirmed, waiting for the go to start phase 1** (2026-09-25).
+Status: **in progress**: v0.1 to v0.3 approved and being built (2026-09-25).
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
@@ -20,7 +20,7 @@ Not in v1: downloading games or cracks (WaterLauncher only manages what's instal
 |---|---|
 | Stack | Go + Wails **v3** (pinned to `v3.0.0-beta.26`, upgraded on purpose, never floating) + Svelte 5 + TypeScript + Vite |
 | Why v3 | It can close windows and keep the app alive (the interface unloads while a game runs), has several windows (main and in-game overlay) and a built-in tray. v2 can only hide its one window. |
-| Database | SQLite through `modernc.org/sqlite` (pure Go, no cgo), with FTS5 for search |
+| Library storage | In memory, saved as one JSON file with atomic writes (changed from SQLite during v0.1: even thousands of games stay a few MB, it loads in milliseconds, and it saves a ~7 MB dependency; search and filters run in the interface) |
 | Controller | SDL3 3.4.x (`SDL3.dll`, zlib license) through a small binding of our own over `golang.org/x/sys/windows`. No cgo. We need about 20 functions, all with integer arguments. |
 | Shared code | Detection code (Steam, Epic, GOG, Xbox, tamper and emulator checks, Ludusavi manifest, known folders) moves out of Syncer into a new module `github.com/ApolloF/gamekit` |
 | Syncer | Stays a separate app and gets a local API (named pipe, current user only) |
@@ -70,7 +70,7 @@ frontend/src/
 docs/                        PLAN.md, addon-protocol.md, syncer-api.md
 ```
 
-Data: `%APPDATA%\WaterLauncher` (settings, `library.db`), `%LOCALAPPDATA%\WaterLauncher\cache` (images).
+Data: `%APPDATA%\WaterLauncher` (`settings.json`, `library.json`, log), `%LOCALAPPDATA%\WaterLauncher\cache` (game database, images, WebView2 data).
 
 ## 4. Library and detection
 
@@ -166,7 +166,7 @@ Each phase ends with a working build, a GitHub prerelease and a check-in.
 
 | # | Version | Scope |
 |---|---|---|
-| 1 | v0.1 | Scaffold (Wails v3, Svelte 5, CI). Detection code copied into `internal/` for now, split into `gamekit` in phase 5. SQLite schema, scanner (stores, unofficial, folders), Desktop D with real data (grid, filters, details), Settings skeleton, mock backend |
+| 1 | v0.1 | Scaffold (Wails v3, Svelte 5, CI). Steam playtime import (pulled forward from v0.4). Detection code copied into `internal/` for now, split into `gamekit` in phase 5. SQLite schema, scanner (stores, unofficial, folders), Desktop D with real data (grid, filters, details), Settings skeleton, mock backend |
 | 2 | v0.2 | Metadata and art (Steam, GOG, PCGamingWiki, SteamGridDB), image pipeline, accent colours, *Found on this PC* review |
 | 3 | v0.3 | Big picture: focus engine, SDL3 controller layer, **Deck** first, then Console, then Orbit; glyphs, haptics, lightbar, on-screen keyboard |
 | 4 | v0.4 | Launch and tracking, playtime import, hooks pipeline, game mode, PS-button overlay, Steam Input routing |

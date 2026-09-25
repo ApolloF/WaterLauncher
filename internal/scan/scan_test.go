@@ -1,0 +1,226 @@
+package scan
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// mk creates files (with optional content) below root.
+func mk(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for rel, content := range files {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if strings.HasSuffix(rel, "/") {
+			if err := os.MkdirAll(p, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func big(n int) string { return strings.Repeat("x", n) }
+
+func TestCleanTitle(t *testing.T) {
+	for in, want := range map[string]string{
+		"Baldurs.Gate.3-RUNE":            "Baldurs Gate 3",
+		"Hades [FitGirl Repack]":         "Hades",
+		"Cyberpunk 2077 v2.12":           "Cyberpunk 2077",
+		"Elden_Ring_Build_12345":         "Elden Ring",
+		"The Witcher 3 - GOG":            "The Witcher 3",
+		"Hollow Knight (v1.5.78.11833)":  "Hollow Knight",
+		"Stardew Valley":                 "Stardew Valley",
+		"DOOM Eternal-EMPRESS":           "DOOM Eternal",
+		"Sekiro Shadows Die Twice-CODEX": "Sekiro Shadows Die Twice",
+		"It Takes Two [DODI Repack]":     "It Takes Two",
+		"Portal 2":                       "Portal 2",
+	} {
+		if got := CleanTitle(in); got != want {
+			t.Errorf("CleanTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSortTitle(t *testing.T) {
+	if SortTitle("The Sims 4") != "sims 4" || SortTitle("A Hat in Time") != "hat in time" || SortTitle("The") != "the" {
+		t.Error("articles not dropped")
+	}
+}
+
+func TestPublisherID(t *testing.T) {
+	const ms = "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+	if got := publisherID(ms); got != "8wekyb3d8bbwe" {
+		t.Errorf("publisherID = %q, want 8wekyb3d8bbwe", got)
+	}
+}
+
+func TestDetectRUNE(t *testing.T) {
+	root := t.TempDir()
+	mk(t, root, map[string]string{
+		"bin/bg3.exe":            big(100),
+		"bin/steam_api64.dll":    "x",
+		"bin/steam_api64.rne":    "x",
+		"bin/steam_appid.txt":    "1086940\n",
+		"bin/steam_emu.ini":      "[Settings]\r\nAppId=1086940\r\nUserName=RUNE\r\n",
+		"Launcher/steam_emu.ini": "AppId=1086940\n",
+	})
+	e := DetectEmulation(root, func(string) bool { return true })
+	if e.Emulator != "RUNE" || e.AppID != 1086940 || e.AppIDFrom != "steam_emu.ini" {
+		t.Errorf("got %+v", e)
+	}
+}
+
+func TestDetectGoldberg(t *testing.T) {
+	root := t.TempDir()
+	mk(t, root, map[string]string{
+		"Game.exe":                       big(10),
+		"steam_api64.dll":                "x",
+		"steam_settings/steam_appid.txt": "\xef\xbb\xbf620",
+	})
+	e := DetectEmulation(root, func(string) bool { return true })
+	if e.Emulator != "Goldberg" || e.AppID != 620 {
+		t.Errorf("got %+v", e)
+	}
+}
+
+func TestDetectUnsignedDLL(t *testing.T) {
+	root := t.TempDir()
+	mk(t, root, map[string]string{"Game.exe": "x", "steam_api64.dll": "x"})
+	if e := DetectEmulation(root, func(string) bool { return false }); e.Emulator != "Steam emulator" {
+		t.Errorf("unsigned DLL: got %+v", e)
+	}
+	if e := DetectEmulation(root, func(string) bool { return true }); e.Emulator != "" {
+		t.Errorf("signed DLL: got %+v", e)
+	}
+}
+
+func TestUnlockerIsNotUnofficial(t *testing.T) {
+	root := t.TempDir()
+	mk(t, root, map[string]string{"Game.exe": "x", "steam_api64.dll": "x", "cream_api.ini": "[config]"})
+	if e := DetectEmulation(root, func(string) bool { return false }); e.Emulator != "" {
+		t.Errorf("DLC unlocker marked unofficial: %+v", e)
+	}
+}
+
+func TestDetectGogInfo(t *testing.T) {
+	root := t.TempDir()
+	mk(t, root, map[string]string{
+		"goggame-1207658924.info": `{"gameId":"1207658924","name":"Quiet Harbor","playTasks":[{"isPrimary":true,"type":"FileTask","path":"bin\\harbor.exe","arguments":"-gog"}]}`,
+		"bin/harbor.exe":          big(10),
+	})
+	e := DetectEmulation(root, nil)
+	if e.Gog == nil || e.Gog.GameID != "1207658924" {
+		t.Fatalf("got %+v", e)
+	}
+	exe, args, _ := e.Gog.primaryTask(root)
+	if filepath.Base(exe) != "harbor.exe" || args != "-gog" {
+		t.Errorf("primary task = %q %q", exe, args)
+	}
+}
+
+func TestPickExeRepack(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Baldurs Gate 3")
+	mk(t, root, map[string]string{
+		"bin/bg3.exe":                big(4 << 20),
+		"bin/bg3_dx11.exe":           big(4 << 20),
+		"Launcher/LariLauncher.exe":  big(1 << 19),
+		"Launcher/CrashReporter.exe": big(1 << 19),
+		"Uninstall/unins000.exe":     big(1 << 20),
+		"DotNetCore/windowsdesktop-runtime-6.0.11-win-x64.exe": big(8 << 20),
+	})
+	if got := filepath.Base(PickExe(root, "Baldur's Gate 3")); got != "bg3.exe" {
+		t.Errorf("picked %s", got)
+	}
+}
+
+func TestPickExeUnreal(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Ember Crown")
+	mk(t, root, map[string]string{
+		"EmberCrown.exe": big(300 << 10),
+		"EmberCrown/Binaries/Win64/EmberCrown-Win64-Shipping.exe": big(8 << 20),
+		"Engine/Binaries/Win64/CrashReportClient.exe":             big(2 << 20),
+	})
+	if got := filepath.Base(PickExe(root, "Ember Crown")); got != "EmberCrown.exe" {
+		t.Errorf("picked %s", got)
+	}
+}
+
+func TestPickExeUnity(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Cult of the Lamb")
+	mk(t, root, map[string]string{
+		"Cult Of The Lamb.exe":    big(600 << 10),
+		"Cult Of The Lamb_Data/":  "",
+		"UnityCrashHandler64.exe": big(1 << 20),
+		"MonoBleedingEdge/x.exe":  big(2 << 20),
+	})
+	if got := filepath.Base(PickExe(root, "Cult of the Lamb")); got != "Cult Of The Lamb.exe" {
+		t.Errorf("picked %s", got)
+	}
+}
+
+func TestLooksLikeGame(t *testing.T) {
+	game := t.TempDir()
+	mk(t, game, map[string]string{"Game.exe": "x", "Game_Data/globalgamemanagers": "x"})
+	if ok, sign := looksLikeGame(game, true); !ok || sign != "Unity" {
+		t.Errorf("unity game: %v %q", ok, sign)
+	}
+	app := t.TempDir()
+	mk(t, app, map[string]string{"app.exe": "x", "resources/app.asar": "x", "d3dcompiler_47.dll": "x"})
+	if ok, _ := looksLikeGame(app, true); ok {
+		t.Error("an Electron app looked like a game")
+	}
+}
+
+func TestMerge(t *testing.T) {
+	dir := `C:\Games\Hades`
+	got := merge([]Candidate{
+		{Title: "Hades", Dir: dir, Source: Folder, Exe: `C:\Games\Hades\x64\Hades.exe`},
+		{Title: "Hades", Dir: dir + `\`, Source: Installer, TitleTrusted: true, Repacker: "FitGirl", SizeBytes: 100},
+		{Title: "Other", Dir: `C:\Games\Other`, Source: Folder},
+	})
+	if len(got) != 2 {
+		t.Fatalf("got %d games: %+v", len(got), got)
+	}
+	h := got[0]
+	if h.Source != Installer || h.Repacker != "FitGirl" || h.Exe == "" || !h.TitleTrusted {
+		t.Errorf("merged = %+v", h)
+	}
+}
+
+func TestInstallerCandidates(t *testing.T) {
+	root := t.TempDir()
+	repack := filepath.Join(root, "DODI-Repacks", "The Sims 4")
+	mk(t, repack, map[string]string{"Game/Bin/TS4_x64.exe": big(1 << 20), "Uninstall/unins000.exe": "x"})
+	tool := filepath.Join(root, "Some Tool")
+	mk(t, tool, map[string]string{"tool.exe": "x"})
+	got := installerCandidates([]uninstallEntry{
+		{Key: "The Sims 4_is1", Name: "The Sims 4", Publisher: "DODI-Repacks", Dir: repack + `\`, Icon: filepath.Join(repack, `Uninstall\unins000.exe`)},
+		{Key: "tool", Name: "Some Tool", Publisher: "Tools Inc", Dir: tool},
+		{Key: "Steam App 413150", Name: "Stardew Valley", Dir: repack},
+		{Key: "steam", Name: "Steam", Publisher: "Valve Corporation", Dir: tool},
+	})
+	if len(got) != 1 || got[0].Repacker != "DODI" || got[0].Exe != "" || got[0].Title != "The Sims 4" {
+		t.Errorf("got %+v", got)
+	}
+}
+
+// TestRealScan scans this PC. Run with WL_REAL_SCAN=1 go test -run RealScan -v ./internal/scan
+func TestRealScan(t *testing.T) {
+	if os.Getenv("WL_REAL_SCAN") == "" {
+		t.Skip("set WL_REAL_SCAN=1 to scan this PC")
+	}
+	r := Run(context.Background(), Options{AutoFolders: true, DetectUnofficial: true})
+	t.Logf("%d games in %v", len(r.Games), r.Took)
+	for _, g := range r.Games {
+		t.Logf("%-28s %-9s app=%-8d emu=%-14s repack=%-6s exe=%s uri=%s\n    how=%s dir=%s", g.Title, g.Source, g.SteamAppID, g.Emulator, g.Repacker, g.Exe, g.LaunchURI, g.How, g.Dir)
+	}
+}
