@@ -13,8 +13,13 @@ Unicode true
 ##   /relaunch   start WaterLauncher when done (used by its updater)
 ##   /tray       with /relaunch: start it in the tray
 ##
-## Optional: -DSIGN_CMD="<command>" signs the uninstaller while it's built;
-## the command gets the file path as its last argument.
+## Signing the uninstaller (see docs/SIGNING.md):
+##   -DSIGN_CMD="<command>"   signs it while it's built (a local certificate);
+##                            the command gets the file path as its last argument.
+##   -DINNER                  builds bin\uninstaller-maker.exe, which only writes
+##                            bin\uninstall.exe when run, so a remote signer
+##                            (SignPath) can sign that file;
+##   -DSIGNED_UNINSTALLER=<file>  then packs that signed uninstaller as it is.
 ####
 
 !define INFO_PROJECTNAME    "WaterLauncher"
@@ -72,7 +77,11 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_LANGUAGE "English"
 
 Name "${INFO_PRODUCTNAME}"
-OutFile "..\..\..\bin\WaterLauncher-setup.exe"
+!ifdef INNER
+    OutFile "..\..\..\bin\uninstaller-maker.exe"
+!else
+    OutFile "..\..\..\bin\WaterLauncher-setup.exe"
+!endif
 InstallDir "$LOCALAPPDATA\Programs\${INFO_PRODUCTNAME}"
 # An update or reinstall goes where WaterLauncher already is.
 InstallDirRegKey HKCU "${UNINST_KEY}" "InstallLocation"
@@ -113,6 +122,11 @@ FunctionEnd
 !insertmacro CloseWaterLauncher "un."
 
 Function .onInit
+!ifdef INNER
+    # Only write the uninstaller next to this exe, for signing.
+    WriteUninstaller "$EXEDIR\uninstall.exe"
+    Quit
+!endif
     !insertmacro wails.checkArchitecture
 FunctionEnd
 
@@ -135,7 +149,21 @@ Section
     IfSilent +2
         CreateShortcut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
-    !insertmacro wails.writeUninstaller
+!ifdef SIGNED_UNINSTALLER
+    File "/oname=uninstall.exe" "${SIGNED_UNINSTALLER}"
+!else
+    WriteUninstaller "$INSTDIR\uninstall.exe"
+!endif
+    SetRegView 64
+    WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "${INFO_COMPANYNAME}"
+    WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${INFO_PRODUCTNAME}"
+    WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${INFO_PRODUCTVERSION}"
+    WriteRegStr HKCU "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    WriteRegStr HKCU "${UNINST_KEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
+    WriteRegStr HKCU "${UNINST_KEY}" "QuietUninstallString" "$\"$INSTDIR\uninstall.exe$\" /S"
+    ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
+    IntFmt $0 "0x%08X" $0
+    WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" "$0"
     WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
     WriteRegStr HKCU "${UNINST_KEY}" "URLInfoAbout" "https://github.com/ApolloF/WaterLauncher"
     WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1

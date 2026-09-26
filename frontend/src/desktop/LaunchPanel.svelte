@@ -11,6 +11,7 @@
   const show = $derived(
     !!s &&
       s.id !== dismissed &&
+      s.route !== "external" && // noticed, not started here: nothing to show until it's played
       (s.phase === "preparing" || s.phase === "starting" || s.phase === "finishing" || s.phase === "failed" || (s.phase === "ended" && !!s.note)),
   );
   const heading = $derived.by(() => {

@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **v1.0 released** (2026-09-26), after v0.1 to v0.7 as prereleases. Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). Code signing waits for a certificate ([SIGNING.md](SIGNING.md)). Section 17 has the v1.0 details and what comes after.
+Status: **v1.1 released** (2026-09-26); v1.0 before it, v0.1 to v0.7 as prereleases. Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). Code signing waits for a certificate ([SIGNING.md](SIGNING.md)). Section 17 has the v1.0 details and what comes after.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
@@ -266,3 +266,63 @@ Checked and fine: no known vulnerabilities in Go modules (govulncheck) or npm pa
 7. **Uninstall tidy-up**: offer to remove the non-Steam shortcuts WaterLauncher added to Steam (they're in a "WaterLauncher" collection).
 8. **Localisation**: the interface is English only, with strings inline in components. Extract them before adding languages.
 9. **Diagnostics**: panics in the core only reach the log; a *Copy diagnostics* button (log tail, versions, settings without secrets) would make bug reports easier.
+
+## 18. v1.1 plan (started 2026-09-26)
+
+Recommendations 1 to 4 of section 17, on `feature/v1.1`. Order: 3, 2, 4 (code only), then 1 (needs decisions and accounts from the user). Each part lands with tests and a measurement, then one v1.1.0 release.
+
+**Status (2026-09-26):** A, B, C and D1 done; D2 prepared, waiting for SignPath's approval. Outcomes:
+
+- A: repeat enrich of 100 generated games (1,000 files each) 700–830 ms → 8 ms; repeat scans on this PC 63 ms → 18 ms.
+- B: private bytes in the tray 79 MB → 62 MB. The < 50 MB goal isn't reachable with Wails: a bare Wails v3 app is 46 MB here (importing it loads shell32 and friends at init; a plain Go program is 12 MB). What's left of ours is ~16 MB. The heap profile showed the game database index as nearly all of the Go heap.
+- C: done as planned; checked by hand with a folder game started from Explorer.
+- D1: key made 2026-09-26 on the maintainer's PC (public key in `internal/update/keys.go`); CI makes drafts; `tools/release` signs and publishes. **The offline backup has to be made by the maintainer** (it asks for a password).
+- D2: CI steps for SignPath (two signing rounds, uninstaller built separately with `-DINNER` / `-DSIGNED_UNINSTALLER`, checked locally by installing and uninstalling with a separately built uninstaller). Setup steps in [SIGNING.md](SIGNING.md).
+
+### A. Scan cost per game (recommendation 3)
+
+Problem: `DetectEmulation` walks each game folder (up to 30,000 entries, 7 levels) and `PickExe` walks it again (20,000 entries, 4 levels) on every scan: 5–30 ms per game here, seconds with hundreds of games.
+
+1. **One walk**: `scan.Inspect(dir, title)` does both in a single `WalkDir`, returning the emulation result, the picked exe and a *fingerprint*.
+2. **Fingerprint**: the modification times of the folders that matter (the root, every folder to depth 2, and every folder holding a marker, a `steam_api*.dll` or an exe candidate), plus size and time of the marker files and DLLs. Adding, removing or renaming a file changes its folder's time; an in-place replacement (a patched `steam_api64.dll`) changes the file's own.
+3. **Cache** per folder in memory: a later scan only stats the fingerprint (tens of calls) and reuses the result when nothing moved. A full walk still happens at least once a day per game and at every start.
+4. **Measure** with a generated library (`scan` benchmark: 100 games of ~2,000 files each in a temp folder) and on this PC. Target: repeat enrich of 500 games under 300 ms total.
+
+### B. Memory while playing (recommendation 2)
+
+Problem: the core holds ~75 MB private with the interface closed; goal < 50 MB.
+
+1. **Attribute first**: `WL_HEAPPROFILE=<file>` writes a Go heap profile 60 s after a game starts (or on `--quit`); compare Go heap (`runtime.MemStats`) with the process's private bytes to split Go from native (SDL, Wails, WebView2 loader).
+2. **Game database index** (~15 MB live, the biggest known item): only scans use it, and scans wait while a game runs. Hold it through a `weak.Pointer` and reload it from the cached file (~1 MB gzip) when the next scan needs it after the GC dropped it; drop the strong reference when a game starts.
+3. **GOG Galaxy database**: read pages with `ReadAt` from the open file instead of loading up to 512 MB whole.
+4. **Native side**: check SDL in passive mode (HIDAPI off) and Wails' idle allocations once the profile shows them; set `debug.SetMemoryLimit` only if the profile shows GC headroom as the cause.
+5. **Measure** before and after on this PC: private bytes 60 s into a game with the interface closed.
+
+### C. Games started outside WaterLauncher (recommendation 4)
+
+Problem: playtime and game mode only work for games started from WaterLauncher. A game started from Steam or a desktop shortcut isn't noticed, and the controller layer stays in its active mode (SDL's HIDAPI drivers) while that game has the DualSense.
+
+1. **No polling**: a WinEvent hook on `EVENT_SYSTEM_FOREGROUND` (out of context, no injection, no administrator rights) on a small thread with its own message loop. Each time a window comes to the front, its process id arrives. (WMI's `Win32_ProcessStartTrace` would need administrator rights, and the non-admin WMI query polls.)
+2. **Match**: the process's image path against the installed games' folders (a sorted index built after each scan); WaterLauncher's own processes and non-game folders are skipped; each process id is checked once.
+3. **Session**: an "external" session in `launch.Manager` without hooks: the existing tracker follows the process tree and the folder, counts playtime, and ends the same way. The controller goes passive (or off, per setting), the tray says what's playing, the PS button opens the overlay. The interface isn't closed for a game you started elsewhere.
+4. **Setting**: *Notice games started outside WaterLauncher* (on by default) under *While playing*, in both Settings screens.
+5. **Tests**: the matcher and session start with fake processes; by hand: start a Steam game from Steam and a folder game from Explorer.
+
+### D. Signed releases (recommendation 1)
+
+Two independent parts.
+
+1. **Release signature, key outside GitHub** (so a compromised GitHub account can't ship an update):
+   - `tools/release`: `keygen` makes an ed25519 key pair; the private key is stored encrypted with DPAPI on the maintainer's PC and exported once, password-protected, for an offline backup.
+   - CI publishes tags as **draft** releases. `go run ./tools/release publish vX.Y.Z` downloads the draft's assets, checks their `.sha256`, writes `SHA256SUMS` and `SHA256SUMS.sig`, uploads both and publishes the release. Drafts are invisible to the updater.
+   - The updater embeds the public key(s) and, from v1.1 on, installs only updates whose hash is listed in a `SHA256SUMS` with a valid signature. v1.0 keeps using the `.sha256` files, so v1.0 → v1.1 still works.
+   - Rotation: a list of accepted keys; a new key is added by a release signed with the old one.
+2. **Authenticode** (SmartScreen, and the publisher check the updater already has): SignPath Foundation (free for open source) signs from GitHub Actions after they approve the project. Needs the user to apply. Then: sign `WaterLauncher.exe`, build the uninstaller separately so it can be signed too (NSIS can't call a remote signer mid-build), sign the installer.
+
+Decisions for the user: where the release key lives and how it's backed up; whether to apply to SignPath (or pay for Azure Artifact Signing).
+
+## To-do (maintainer)
+
+- [ ] **Back up the release key** before the next release: `go run ./tools/release backup <file>` in a terminal (it asks for a password). Keep the file offline and the password elsewhere. Without it, losing this PC strands v1.1+ users on their version ([RELEASING.md](RELEASING.md)).
+- [ ] **Apply to SignPath Foundation** (signpath.org) for Authenticode signing. Once approved: the project, signing policy and the `binaries` and `installer` artifact configurations in SignPath, then the `SIGNPATH_API_TOKEN` secret and `SIGNPATH_*` variables on GitHub ([SIGNING.md](SIGNING.md)). Until then releases carry the release-key signature but no Authenticode signature, so SmartScreen warns on first run.
+- [ ] Turn on GitHub's private vulnerability reporting (Settings → Security), which [SECURITY.md](../SECURITY.md) points to.

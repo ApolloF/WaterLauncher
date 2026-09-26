@@ -46,6 +46,7 @@
     { key: "syncSavesBefore", title: "Sync saves before playing", detail: "With Syncer: saves come up to date from your other PCs first.", kind: "toggle" },
     { key: "backupSavesAfter", title: "Back up saves after playing", detail: "With Syncer: a backup runs when the game exits.", kind: "toggle" },
     { key: "closeWhilePlaying", title: "Close the interface while playing", detail: "Frees its memory. It comes back when the game exits.", kind: "toggle" },
+    { key: "noticeExternal", title: "Notice games started elsewhere", detail: "Games started from Steam or a shortcut count their playtime here too.", kind: "toggle" },
     { key: "autoUpdate", title: "Keep WaterLauncher up to date", detail: "New versions download in the background and install the next time WaterLauncher starts.", kind: "toggle" },
     {
       key: "padWhilePlaying",

@@ -232,6 +232,9 @@ func (s *SettingsService) Save(v settings.Settings) (settings.Settings, error) {
 	if saved.ShowOwned && !old.ShowOwned {
 		s.c.meta.queueMissing()
 	}
+	if saved.NoticeExternal != old.NoticeExternal && s.c.external != nil {
+		s.c.external.set(saved.NoticeExternal)
+	}
 	if saved.AutoUpdate && !old.AutoUpdate {
 		NewUpdateService(s.c).Check()
 	}

@@ -80,6 +80,11 @@ export interface Settings {
     "padWhilePlaying": string;
 
     /**
+     * follow games started outside WaterLauncher (playtime, controller)
+     */
+    "noticeExternal": boolean;
+
+    /**
      * Saves, through Syncer
      * sync a game's saves before it starts
      */

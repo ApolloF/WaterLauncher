@@ -57,6 +57,12 @@ type Emulation struct {
 // and GOG game info files. signed reports whether a DLL carries a valid
 // signature; nil skips that check.
 func DetectEmulation(dir string, signed func(string) bool) Emulation {
+	return detectEmulation(dir, signed, nil)
+}
+
+// detectEmulation is DetectEmulation; fp (may be nil) records what the
+// answer depends on.
+func detectEmulation(dir string, signed func(string) bool, fp *fingerprint) Emulation {
 	var e Emulation
 	root := filepath.Clean(dir)
 	depth0 := strings.Count(root, `\`)
@@ -73,6 +79,9 @@ func DetectEmulation(dir string, signed func(string) bool) Emulation {
 		}
 		name := strings.ToLower(d.Name())
 		if d.IsDir() {
+			if p == root || strings.Count(filepath.Clean(p), `\`)-depth0 == 1 {
+				fp.entry(p, d) // the folder and its direct subfolders
+			}
 			if p == root {
 				return nil
 			}
@@ -91,6 +100,10 @@ func DetectEmulation(dir string, signed func(string) bool) Emulation {
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if telling(name) {
+			fp.entry(p, d)
+			fp.dir(filepath.Dir(p))
 		}
 		switch {
 		case name == "steam_appid.txt":
@@ -146,6 +159,14 @@ func DetectEmulation(dir string, signed func(string) bool) Emulation {
 		}
 	}
 	return e
+}
+
+// telling reports whether a file name matters to DetectEmulation.
+func telling(name string) bool {
+	_, emu := emuFiles[name]
+	return emu || unlockers[name] || name == "steam_appid.txt" || name == "steam_api.dll" || name == "steam_api64.dll" ||
+		name == "libscepad.dll" || name == "libscepad_x64.dll" || name == "sdl2.dll" || name == "sdl3.dll" ||
+		(strings.HasPrefix(name, "goggame-") && strings.HasSuffix(name, ".info"))
 }
 
 // emuGroup works out which group's steam_emu.ini this is: RUNE and CODEX

@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ApolloF/WaterLauncher/internal/scan"
 )
@@ -134,5 +135,30 @@ func TestRealManifest(t *testing.T) {
 		{Title: "The Sims 4", Source: scan.Installer, TitleTrusted: true},
 	} {
 		t.Logf("%q → %+v", c.Title, ix.Identify(c))
+	}
+}
+
+func TestIndexLetGoWhenUnused(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	m.keep = 20 * time.Millisecond
+	if err := writeIndex(m.indexFile(), []Entry{{Name: "Portal", SteamID: 400}}); err != nil {
+		t.Fatal(err)
+	}
+	if ix := m.Index(); ix == nil || ix.Len() != 1 {
+		t.Fatalf("index = %v", ix)
+	}
+	time.Sleep(100 * time.Millisecond)
+	m.mu.Lock()
+	held := m.idx != nil
+	m.mu.Unlock()
+	if held {
+		t.Error("index still held after it went unused")
+	}
+	if m.Len() != 1 {
+		t.Errorf("Len = %d after letting go, want 1", m.Len())
+	}
+	if ix := m.Index(); ix == nil || ix.Len() != 1 {
+		t.Errorf("index not read again: %v", ix)
 	}
 }

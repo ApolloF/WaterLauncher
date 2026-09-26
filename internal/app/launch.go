@@ -201,6 +201,7 @@ func (c *Core) plan(g library.Game) launch.Plan {
 			c.gamesChanged(g.ID)
 		},
 		OnRun: func() {
+			heapDiag("playing")
 			c.shell.setTrayTooltip("WaterLauncher · playing " + title)
 			cfg := c.Settings.Get()
 			if m := c.padManager(); m != nil {
@@ -242,7 +243,11 @@ func (c *Core) onSession(s launch.Session) {
 	}
 	if c.shell != nil {
 		c.shell.setTrayTooltip("WaterLauncher")
-		c.shell.gameEnded()
+		if s.Route == RouteExternal {
+			c.shell.CloseOverlay() // the interface wasn't closed for it
+		} else {
+			c.shell.gameEnded()
+		}
 	}
 }
 

@@ -28,7 +28,10 @@ var exeSkipDirs = map[string]bool{
 // Unlike picking the process the game ends up running as, launching
 // prefers Unreal's small bootstrapper in the root over the Shipping binary,
 // since the bootstrapper passes the right arguments along.
-func PickExe(dir, title string) string {
+func PickExe(dir, title string) string { return pickExe(dir, title, nil) }
+
+// pickExe is PickExe; fp (may be nil) records what the answer depends on.
+func pickExe(dir, title string, fp *fingerprint) string {
 	root := filepath.Clean(dir)
 	depth0 := strings.Count(root, `\`)
 	type exe struct {
@@ -47,6 +50,9 @@ func PickExe(dir, title string) string {
 		}
 		depth := strings.Count(filepath.Clean(p), `\`) - depth0
 		if d.IsDir() {
+			if depth <= 1 {
+				fp.entry(p, d) // the folder and its direct subfolders
+			}
 			if p != root && (exeSkipDirs[strings.ToLower(d.Name())] || depth > 4) {
 				return filepath.SkipDir
 			}
@@ -55,6 +61,7 @@ func PickExe(dir, title string) string {
 		if !strings.EqualFold(filepath.Ext(p), ".exe") || excludedExe(p) {
 			return nil
 		}
+		fp.dir(filepath.Dir(p))
 		if fi, err := d.Info(); err == nil {
 			exes = append(exes, exe{p, fi.Size(), depth - 1})
 		}

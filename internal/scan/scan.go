@@ -114,7 +114,7 @@ func Run(ctx context.Context, o Options) Result {
 // details, the shortcut's launch target and a fallback executable.
 func enrich(c *Candidate, scs []shortcut, o Options) {
 	if o.DetectUnofficial && c.Source != Xbox {
-		em := DetectEmulation(c.Dir, o.Signed)
+		em := detectEmulationCached(c.Dir, o.Signed)
 		c.Emulator, c.EmuMarker, c.PadHint = em.Emulator, em.Marker, em.PadHint
 		if em.AppID > 0 && c.SteamAppID == 0 {
 			c.SteamAppID, c.AppIDFrom = em.AppID, em.AppIDFrom
@@ -145,7 +145,7 @@ func enrich(c *Candidate, scs []shortcut, o Options) {
 		c.Exe, c.Args, c.WorkDir = "", "", ""
 	}
 	if c.Exe == "" {
-		c.Exe = PickExe(c.Dir, c.Title)
+		c.Exe = pickExeCached(c.Dir, c.Title)
 	}
 	if c.Emulator != "" && c.Source == Steam {
 		c.How = "Steam library, files modified (" + c.EmuMarker + ")"

@@ -9,6 +9,7 @@ package update
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,9 @@ type Feed struct {
 	AssetPrefix string   // every download URL must start with this
 	Hosts       []string // hosts a download may be redirected to
 	Client      *http.Client
+	// Keys are the release keys; with any, only files listed in a signed
+	// SHA256SUMS are accepted.
+	Keys []ed25519.PublicKey
 }
 
 // GitHub is WaterLauncher's own release feed.
@@ -41,6 +45,7 @@ var GitHub = Feed{
 	LatestURL:   "https://api.github.com/repos/ApolloF/WaterLauncher/releases/latest",
 	AssetPrefix: "https://github.com/ApolloF/WaterLauncher/releases/download/",
 	Hosts:       []string{"github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"},
+	Keys:        ReleaseKeys,
 }
 
 // ReleasesPage is where people download WaterLauncher by hand.

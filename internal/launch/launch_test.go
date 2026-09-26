@@ -245,9 +245,9 @@ func TestQuit(t *testing.T) {
 }
 
 func TestUsableDirs(t *testing.T) {
-	got := usableDirs([]string{`C:\`, platform.ProgramFiles, `C:\Users`, "", "relative", gameDir})
+	got := UsableDirs([]string{`C:\`, platform.ProgramFiles, `C:\Users`, "", "relative", gameDir})
 	if len(got) != 1 || got[0] != gameDir {
-		t.Errorf("usableDirs = %v", got)
+		t.Errorf("UsableDirs = %v", got)
 	}
 }
 

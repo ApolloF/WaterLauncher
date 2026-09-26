@@ -58,6 +58,7 @@ type Core struct {
 	addons   *addonState
 	owned    *ownedState
 	updates  *updater
+	external *externalWatch
 
 	shell       *Shell
 	pad         atomic.Pointer[pad.Manager]
@@ -100,9 +101,12 @@ func NewCore(version string) (*Core, error) {
 // the folders games install into.
 func (c *Core) Start() {
 	go c.scanLoop()
+	heapDiag("idle")
 	go c.meta.run(c.ctx)
 	go c.owned.loop(c.ctx)
 	go c.updates.loop(c.ctx)
+	c.external = newExternalWatch(c)
+	c.external.set(c.Settings.Get().NoticeExternal)
 	if exe, err := os.Executable(); err == nil && platform.RepairStartup(exe) {
 		logx.Printf("start with Windows: now starts %s", exe)
 	}
@@ -117,7 +121,7 @@ func (c *Core) Start() {
 			return
 		}
 		if fresh {
-			logx.Printf("game database updated: %d titles", c.Manifest.Index().Len())
+			logx.Printf("game database updated: %d titles", c.Manifest.Len())
 			c.RequestScan() // identify again with the new data
 		}
 	}()

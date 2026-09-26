@@ -17,6 +17,7 @@ func TestReadTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 	rows, err := db.Rows("T")
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +53,7 @@ func TestWAL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 	rows, err := db.Rows("k")
 	if err != nil {
 		t.Fatal(err)
@@ -84,6 +86,7 @@ func TestGarbage(t *testing.T) {
 		os.WriteFile(p, good[:n], 0o644)
 		if db, err := Open(p); err == nil {
 			_, _ = db.Rows("t")
+			db.Close()
 		}
 	}
 }
