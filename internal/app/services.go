@@ -212,11 +212,13 @@ type AppInfo struct {
 	Version string `json:"version"`
 	DataDir string `json:"dataDir"`
 	LogFile string `json:"logFile"`
+	// The previous run crashed (its output is in crash-previous.log).
+	CrashedLastTime bool `json:"crashedLastTime"`
 }
 
 // Info returns the version and where data is kept.
 func (s *SettingsService) Info() AppInfo {
-	return AppInfo{Version: s.c.Version, DataDir: platform.AppDir(), LogFile: logx.Path()}
+	return AppInfo{Version: s.c.Version, DataDir: platform.AppDir(), LogFile: logx.Path(), CrashedLastTime: crashedLastTime}
 }
 
 // Get returns the settings.

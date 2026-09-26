@@ -27,6 +27,17 @@ const uniqueID = "nl.apollof.waterlauncher"
 
 func main() {
 	args := app.ParseArgs(os.Args[1:])
+	if args.Diagnostics {
+		// Works while WaterLauncher runs, or when its interface won't open.
+		core, err := app.NewCore(version)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if p, err := app.WriteDiagnostics(core); err == nil {
+			_ = platform.OpenFile(p)
+		}
+		return
+	}
 	if args.Updated {
 		// Started by an update: the old version may still be closing.
 		platform.WaitInstanceGone(uniqueID, 15*time.Second)
@@ -44,6 +55,8 @@ func main() {
 	if args.Quit {
 		return // nothing runs, nothing to close (the installer asks)
 	}
+	// Only the instance that runs keeps a crash log (a second one exited above).
+	app.CaptureCrashes()
 	if args.Play == 0 && !args.Updated && app.ApplyPendingUpdate(version, args.Tray) {
 		return // the new version takes over
 	}

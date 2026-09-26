@@ -255,6 +255,8 @@ export interface AppInfo {
   version: string;
   dataDir: string;
   logFile: string;
+  /** The previous run crashed. */
+  crashedLastTime: boolean;
 }
 
 /** Mirrors internal/app.UpdateState. */

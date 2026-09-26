@@ -318,6 +318,9 @@ type Args struct {
 	Tray    bool  // --tray: start in the tray (at sign-in)
 	Quit    bool  // --quit: close the running WaterLauncher (installer)
 	Updated bool  // --updated: started by an update
+	// --diagnostics: write a diagnostics report to the desktop and exit,
+	// for when the interface won't open.
+	Diagnostics bool
 }
 
 // ParseArgs reads the command line; unknown arguments are ignored.
@@ -332,6 +335,8 @@ func ParseArgs(args []string) Args {
 			a.Quit = true
 		case "--updated":
 			a.Updated = true
+		case "--diagnostics":
+			a.Diagnostics = true
 		}
 	}
 	return a
