@@ -1,20 +1,23 @@
 <script lang="ts">
   // Big picture settings, made for a controller: up/down to pick a row,
-  // left/right or ✕ to change it.
+  // left/right or ✕ to change it. The list scrolls to keep the row in view.
+  import { api } from "../lib/api";
   import { feedback, useInput } from "../lib/input.svelte";
+  import { syncerSummary } from "../lib/saves";
   import { lib } from "../lib/store.svelte";
-  import type { Settings } from "../lib/types";
+  import type { Settings, SyncerStatus } from "../lib/types";
   import Hints from "./Hints.svelte";
-  import { clamp } from "./nav";
 
   let { onback }: { onback: () => void } = $props();
 
   type Row =
-    | { key: keyof Settings; title: string; detail: string; kind: "toggle" }
-    | { key: keyof Settings; title: string; detail: string; kind: "choice"; options: [string, string][] };
+    | { key: keyof Settings; title: string; detail: string; kind: "toggle"; group?: string }
+    | { key: keyof Settings; title: string; detail: string; kind: "choice"; options: [string | number, string][]; group?: string }
+    | { key: "syncer"; title: string; detail: string; kind: "status"; group?: string };
 
   const rows: Row[] = [
     {
+      group: "Big picture",
       key: "bigPictureLayout",
       title: "Layout",
       detail: "How big picture looks. Deck is the default.",
@@ -25,10 +28,13 @@
         ["orbit", "Orbit"],
       ],
     },
+    { key: "sounds", title: "Navigation sounds", detail: "Soft clicks as you move.", kind: "toggle" },
+    { key: "startInBigPicture", title: "Start in big picture", detail: "Skip the desktop window when WaterLauncher starts.", kind: "toggle" },
     {
+      group: "Controller",
       key: "glyphs",
       title: "Button prompts",
-      detail: "Shapes for PlayStation controllers, letters for Xbox. Auto follows the controller in use.",
+      detail: "Shapes for PlayStation controllers, letters for Xbox. Auto follows the controller in use; keys show while you use the keyboard.",
       kind: "choice",
       options: [
         ["auto", "Auto"],
@@ -36,18 +42,10 @@
         ["xbox", "Xbox"],
       ],
     },
-    { key: "haptics", title: "Haptics while browsing", detail: "Light ticks as you move between games.", kind: "toggle" },
+    { key: "haptics", title: "Haptics", detail: "A tick as you move, a bump at the end of a row, a firmer pulse when you choose.", kind: "toggle" },
     { key: "lightbar", title: "Lightbar follows the game", detail: "Tints the DualSense to the selected game.", kind: "toggle" },
-    { key: "sounds", title: "Navigation sounds", detail: "Soft clicks as you move.", kind: "toggle" },
     { key: "openBigPictureOnController", title: "Open big picture when a controller connects", detail: "Switches over as soon as you pick one up.", kind: "toggle" },
-    { key: "startInBigPicture", title: "Start in big picture", detail: "Skip the desktop window when WaterLauncher starts.", kind: "toggle" },
     { key: "psButton", title: "PS / Xbox button opens WaterLauncher", detail: "From other apps, and the overlay in games. Turn off Steam's guide-button shortcut to avoid both opening.", kind: "toggle" },
-    { key: "showOwned", title: "Show games you own that aren't installed", detail: "From the store accounts connected in desktop Settings.", kind: "toggle" },
-    { key: "syncSavesBefore", title: "Sync saves before playing", detail: "With Syncer: saves come up to date from your other PCs first.", kind: "toggle" },
-    { key: "backupSavesAfter", title: "Back up saves after playing", detail: "With Syncer: a backup runs when the game exits.", kind: "toggle" },
-    { key: "closeWhilePlaying", title: "Close the interface while playing", detail: "Frees its memory. It comes back when the game exits.", kind: "toggle" },
-    { key: "noticeExternal", title: "Notice games started elsewhere", detail: "Games started from Steam or a shortcut count their playtime here too.", kind: "toggle" },
-    { key: "autoUpdate", title: "Keep WaterLauncher up to date", detail: "New versions download in the background and install the next time WaterLauncher starts.", kind: "toggle" },
     {
       key: "padWhilePlaying",
       title: "Controller while playing",
@@ -58,33 +56,78 @@
         ["off", "Off"],
       ],
     },
+    { group: "Saves", key: "syncer", title: "Syncer", detail: "", kind: "status" },
+    { key: "syncSavesBefore", title: "Sync saves before playing", detail: "Saves come up to date from your other PCs first.", kind: "toggle" },
+    {
+      key: "syncWait",
+      title: "Wait for a sync at most",
+      detail: "When another PC is slow to send a save, the game starts after this.",
+      kind: "choice",
+      options: [
+        [30, "30 s"],
+        [60, "1 min"],
+        [150, "2½ min"],
+        [300, "5 min"],
+      ],
+    },
+    { key: "backupSavesAfter", title: "Back up saves after playing", detail: "A backup runs when the game exits.", kind: "toggle" },
+    { key: "startSyncer", title: "Start Syncer when it isn't running", detail: "In the background, without its window.", kind: "toggle" },
+    { group: "Library and playing", key: "showOwned", title: "Show games you own that aren't installed", detail: "From the store accounts connected in desktop Settings.", kind: "toggle" },
+    { key: "closeWhilePlaying", title: "Close the interface while playing", detail: "Frees its memory. It comes back when the game exits.", kind: "toggle" },
+    { key: "noticeExternal", title: "Notice games started elsewhere", detail: "Games started from Steam or a shortcut count their playtime here too.", kind: "toggle" },
+    { key: "autoUpdate", title: "Keep WaterLauncher up to date", detail: "New versions download in the background and install the next time WaterLauncher starts.", kind: "toggle" },
   ];
 
   let i = $state(0);
   const s = $derived(lib.settings);
 
+  let syncer = $state<SyncerStatus | null>(null);
+  let checking = $state(false);
+  async function check(start: boolean) {
+    checking = true;
+    try {
+      syncer = await api.saves.syncer(start);
+    } catch {
+      /* keeps the last answer */
+    } finally {
+      checking = false;
+    }
+  }
+  $effect(() => {
+    check(false);
+  });
+  const syncerSum = $derived(syncerSummary(syncer, s?.startSyncer ?? true));
+
   function change(dir: 1 | -1) {
     if (!s) return;
     const row = rows[i];
-    if (row.kind === "toggle") {
+    if (row.kind === "status") {
+      // ✕ on Syncer: start it (or look again), or open it to sort things out.
+      if (syncerSum?.action === "open") lib.run(() => api.saves.openSyncer());
+      else if (syncerSum?.action === "get" || syncerSum?.action === "update") lib.run(() => api.saves.getSyncer());
+      else check(true);
+    } else if (row.kind === "toggle") {
       lib.saveSettings({ ...s, [row.key]: !s[row.key] });
     } else {
       const ids = row.options.map((o) => o[0]);
-      const cur = ids.indexOf(String(s[row.key]));
+      const cur = ids.findIndex((v) => String(v) === String(s[row.key]));
       const next = ids[(cur + dir + ids.length) % ids.length];
       lib.saveSettings({ ...s, [row.key]: next } as Settings);
     }
     feedback.confirm();
   }
 
+  let list: HTMLDivElement | undefined = $state();
+  $effect(() => {
+    list?.querySelector<HTMLElement>(`[data-row="${i}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
+
   $effect(() =>
     useInput((intent) => {
       if (intent === "up" || intent === "down") {
-        const j = clamp(i + (intent === "up" ? -1 : 1), 0, rows.length - 1);
-        if (j !== i) {
-          i = j;
-          feedback.move();
-        }
+        const j = i + (intent === "up" ? -1 : 1);
+        if (j >= 0 && j < rows.length) ((i = j), feedback.move());
+        else feedback.edge();
       } else if (intent === "confirm" || intent === "right") change(1);
       else if (intent === "left") change(-1);
       else if (intent === "back") onback();
@@ -93,27 +136,40 @@
   );
 
   function valueLabel(row: Row): string {
-    if (!s) return "";
+    if (!s || row.kind === "status") return "";
     if (row.kind === "toggle") return s[row.key] ? "On" : "Off";
-    return row.options.find((o) => o[0] === s[row.key])?.[1] ?? "";
+    return row.options.find((o) => String(o[0]) === String(s[row.key]))?.[1] ?? "";
   }
 </script>
 
 <div class="settings">
   <h1>Settings</h1>
-  <div class="rows">
+  <div class="rows" bind:this={list}>
     {#each rows as row, k (row.key)}
-      <button type="button" class="row" class:on={k === i} onclick={() => ((i = k), change(1))}>
-        <span class="text"><span class="t">{row.title}</span><span class="d">{row.detail}</span></span>
-        {#if row.kind === "toggle"}
-          <span class="track" class:yes={!!s?.[row.key]}><span class="knob"></span></span>
+      {#if row.group}<span class="group">{row.group}</span>{/if}
+      <button type="button" class="row" class:on={k === i} data-row={k} tabindex="-1" onclick={() => ((i = k), change(1))}>
+        {#if row.kind === "status"}
+          <span class="dot" class:ok={syncerSum?.tone === "ok"} class:warn={syncerSum?.tone === "warn"}></span>
+          <span class="text"
+            ><span class="t">Syncer: {checking && !syncerSum ? "Checking…" : (syncerSum?.title ?? "Checking…")}</span><span class="d">{syncerSum?.detail ?? ""}</span></span
+          >
+          {#if syncerSum}
+            <span class="act"
+              >{syncerSum.action === "open" ? "Open Syncer" : syncerSum.action === "get" ? "Get Syncer" : syncerSum.action === "update" ? "Update" : syncerSum.action === "start" ? "Start" : "Check again"}</span
+            >
+          {/if}
         {:else}
-          <span class="choice"><span class="arrow">‹</span>{valueLabel(row)}<span class="arrow">›</span></span>
+          <span class="text"><span class="t">{row.title}</span><span class="d">{row.detail}</span></span>
+          {#if row.kind === "toggle"}
+            <span class="track" class:yes={!!s?.[row.key]}><span class="knob"></span></span>
+          {:else}
+            <span class="choice"><span class="arrow">‹</span>{valueLabel(row)}<span class="arrow">›</span></span>
+          {/if}
         {/if}
       </button>
     {/each}
+    <p class="more">Library folders, store accounts and art sources are in desktop mode's settings.</p>
   </div>
-  <p class="more">Library folders and art sources are in desktop mode's settings.</p>
   <div class="hints"><Hints hints={[{ button: "confirm", label: "Change" }, { button: "back", label: "Back" }]} /></div>
 </div>
 
@@ -123,20 +179,42 @@
     inset: 0;
     background: #0a0e13;
     color: #e8edf2;
-    padding: 60px 110px;
   }
   h1 {
-    margin: 0 0 30px;
+    position: absolute;
+    left: 110px;
+    top: 50px;
+    margin: 0;
     font-family: var(--font-display);
     font-size: 52px;
   }
   .rows {
+    position: absolute;
+    left: 110px;
+    right: 110px;
+    top: 140px;
+    bottom: 120px;
+    max-width: 1300px;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 10px;
-    max-width: 1300px;
+    padding: 6px;
+    mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 40px), transparent 100%);
+  }
+  .group {
+    margin: 18px 0 4px 6px;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #7f8c99;
+  }
+  .group:first-child {
+    margin-top: 4px;
   }
   .row {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 24px;
@@ -164,6 +242,27 @@
   .d {
     font-size: 18px;
     color: #9ba8b5;
+  }
+  .dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: #6b7885;
+  }
+  .dot.ok {
+    background: oklch(0.75 0.15 150);
+    box-shadow: 0 0 0 5px color-mix(in oklab, oklch(0.75 0.15 150) 25%, transparent);
+  }
+  .dot.warn {
+    background: oklch(0.8 0.14 75);
+    box-shadow: 0 0 0 5px color-mix(in oklab, oklch(0.8 0.14 75) 25%, transparent);
+  }
+  .act {
+    font-size: 20px;
+    font-weight: 700;
+    color: oklch(0.88 0.09 205);
+    white-space: nowrap;
   }
   .choice {
     display: flex;
@@ -204,7 +303,7 @@
     transform: translateX(28px);
   }
   .more {
-    margin-top: 26px;
+    margin: 20px 0 30px 6px;
     font-size: 19px;
     color: #9ba8b5;
   }

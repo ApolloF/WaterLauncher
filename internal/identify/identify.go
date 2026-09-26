@@ -2,7 +2,6 @@ package identify
 
 import (
 	"path/filepath"
-	"regexp"
 	"strconv"
 
 	"github.com/ApolloF/WaterLauncher/internal/scan"
@@ -87,7 +86,6 @@ type Match struct {
 }
 
 // Edition words stripped when an exact title doesn't match.
-var reEdition = regexp.MustCompile(`(?i)\s*[-:–]?\s*(digital\s+)?(deluxe|ultimate|complete|definitive|goty|game of the year|gold|premium|special|collector'?s|standard|enhanced|anniversary|remastered|director'?s cut)(\s+(edition|version|cut))?\s*$`)
 
 // Identify establishes the game behind a candidate. ix may be nil (no
 // manifest yet): the candidate's own ids and title are used as they are.
@@ -120,8 +118,13 @@ func (ix *Index) Identify(c scan.Candidate) Match {
 		// The store's title is authoritative; the manifest only adds a Steam id for art.
 		m.Confidence, m.How = 100, c.How
 		e := ix.byTitle(c.Title)
+		for _, t := range []string{c.Title, scan.StripEdition(c.Title)} {
+			if e == nil {
+				e = ix.byLooseTitle(t)
+			}
+		}
 		if e == nil {
-			e = ix.byLooseTitle(c.Title)
+			e = ix.byTitle(scan.StripEdition(c.Title))
 		}
 		if e != nil && e.SteamID > 0 {
 			m.SteamAppID = e.SteamID
@@ -131,7 +134,7 @@ func (ix *Index) Identify(c scan.Candidate) Match {
 	if e := ix.byTitle(c.Title); e != nil {
 		return Match{Title: e.Name, SteamAppID: e.SteamID, GogID: e.GogID, Confidence: 85, How: "Matched by title"}
 	}
-	if stripped := reEdition.ReplaceAllString(c.Title, ""); stripped != c.Title {
+	if stripped := scan.StripEdition(c.Title); stripped != c.Title {
 		if e := ix.byTitle(stripped); e != nil {
 			return Match{Title: e.Name, SteamAppID: e.SteamID, GogID: e.GogID, Confidence: 75, How: "Matched by title (without edition)"}
 		}
@@ -144,9 +147,10 @@ func (ix *Index) Identify(c scan.Candidate) Match {
 	}
 	// Spelled a little differently, as folder names often are ("Assassin
 	// Creed" for "Assassin's Creed").
-	names := []string{c.Title, reEdition.ReplaceAllString(c.Title, "")}
+	names := []string{c.Title, scan.StripEdition(c.Title), scan.ExpandAbbrev(c.Title)}
 	if c.Dir != "" {
-		names = append(names, scan.CleanTitle(filepath.Base(c.Dir)))
+		folder := scan.CleanTitle(filepath.Base(c.Dir))
+		names = append(names, folder, scan.StripEdition(folder), scan.ExpandAbbrev(folder))
 	}
 	for _, t := range names {
 		if e := ix.byLooseTitle(t); e != nil {

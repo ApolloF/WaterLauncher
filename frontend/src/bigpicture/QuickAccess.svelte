@@ -3,11 +3,10 @@
   // the ways out of big picture.
   import Icon from "../components/Icon.svelte";
   import { api } from "../lib/api";
-  import { feedback, pad, useInput } from "../lib/input.svelte";
+  import { feedback, input, pad, useInput } from "../lib/input.svelte";
   import { lib } from "../lib/store.svelte";
   import type { Settings } from "../lib/types";
   import Hints from "./Hints.svelte";
-  import { clamp } from "./nav";
 
   let { light, onclose, onsettings, ondesktop }: { light: string; onclose: () => void; onsettings: () => void; ondesktop: () => void } = $props();
 
@@ -19,11 +18,11 @@
       detail: lib.scan.running ? "Looking…" : `${lib.counts.all} games${lib.scan.tookMs ? ` · last scan took ${(lib.scan.tookMs / 1000).toFixed(1)} s` : ""}`,
       run: () => api.rescan(),
     },
-    { id: "haptics", title: "Haptics while browsing", detail: "Light ticks as you move between games", toggle: "haptics" },
+    { id: "haptics", title: "Haptics", detail: "A tick as you move, a bump at the end", toggle: "haptics" },
     { id: "lightbar", title: "Lightbar follows the game", detail: "Tints the DualSense to the selected game", toggle: "lightbar" },
     { id: "sounds", title: "Navigation sounds", detail: "Soft clicks as you move", toggle: "sounds" },
     { id: "settings", title: "Settings", detail: "Layout, controller and more", run: onsettings },
-    { id: "desktop", title: "Switch to desktop mode", detail: "Mouse and keyboard layout", run: ondesktop },
+    { id: "desktop", title: "Switch to desktop mode", detail: input.source === "keyboard" ? "Mouse and keyboard layout · F11 from anywhere" : "Mouse and keyboard layout", run: ondesktop },
   ]);
 
   let i = $state(0);
@@ -41,11 +40,9 @@
       switch (intent) {
         case "up":
         case "down": {
-          const j = clamp(i + (intent === "up" ? -1 : 1), 0, items.length - 1);
-          if (j !== i) {
-            i = j;
-            feedback.move();
-          }
+          const j = i + (intent === "up" ? -1 : 1);
+          if (j >= 0 && j < items.length) ((i = j), feedback.move());
+          else feedback.edge();
           return;
         }
         case "confirm":

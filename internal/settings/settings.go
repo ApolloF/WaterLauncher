@@ -44,6 +44,8 @@ type Settings struct {
 	// Saves, through Syncer
 	SyncSavesBefore  bool `json:"syncSavesBefore"`  // sync a game's saves before it starts
 	BackupSavesAfter bool `json:"backupSavesAfter"` // back its saves up after it exits
+	SyncWait         int  `json:"syncWait"`         // seconds to wait for a sync before playing
+	StartSyncer      bool `json:"startSyncer"`      // start Syncer (without its window) when it isn't running
 
 	// Updates
 	AutoUpdate bool `json:"autoUpdate"` // check GitHub for new versions and install them on the next start
@@ -56,7 +58,7 @@ func Defaults() Settings {
 		Theme: "system", BigPictureLayout: "deck",
 		OpenBigPictureOnController: true, Haptics: true, Lightbar: true, PSButton: true, Glyphs: "auto",
 		CloseWhilePlaying: true, PadWhilePlaying: "listen", NoticeExternal: true,
-		SyncSavesBefore: true, BackupSavesAfter: true,
+		SyncSavesBefore: true, BackupSavesAfter: true, SyncWait: 60, StartSyncer: true,
 		AutoUpdate: true,
 	}
 }
@@ -134,6 +136,11 @@ func normalize(v Settings) Settings {
 	case "system", "dark", "light":
 	default:
 		v.Theme = "system"
+	}
+	switch v.SyncWait {
+	case 30, 60, 150, 300:
+	default:
+		v.SyncWait = 60
 	}
 	switch v.BigPictureLayout {
 	case "deck", "console", "orbit":

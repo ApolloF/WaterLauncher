@@ -13,6 +13,7 @@ export interface Meta {
   cover?: string;
   hero?: string;
   backdrop?: string; // 16:9, for full-screen backgrounds
+  tile?: string; // square: key art with the logo, for round tiles (Orbit)
   logo?: string;
   icon?: string;
   accent?: string;
@@ -89,6 +90,10 @@ export interface Settings {
   noticeExternal: boolean;
   syncSavesBefore: boolean;
   backupSavesAfter: boolean;
+  /** Seconds to wait for a sync before playing: 30, 60, 150 or 300. */
+  syncWait: number;
+  /** Start Syncer (without its window) when it isn't running. */
+  startSyncer: boolean;
   autoUpdate: boolean;
 }
 
@@ -111,6 +116,24 @@ export interface SaveFolder {
 }
 
 /** What Syncer knows about a game's saves. */
+/** How WaterLauncher and Syncer get on. */
+export interface SyncerStatus {
+  installed: boolean;
+  version?: string;
+  outdated: boolean;
+  connected: boolean;
+  running: boolean;
+  error?: string;
+  syncing: boolean;
+  paused: boolean;
+  pausedUntil?: number;
+  backingUp: boolean;
+  lastBackup?: number;
+  games: number;
+  conflicts: number;
+  checkedAt: number;
+}
+
 export interface Saves {
   installed: boolean;
   outdated?: boolean;

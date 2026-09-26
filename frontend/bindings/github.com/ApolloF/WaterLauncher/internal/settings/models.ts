@@ -96,6 +96,16 @@ export interface Settings {
     "backupSavesAfter": boolean;
 
     /**
+     * seconds to wait for a sync before playing
+     */
+    "syncWait": number;
+
+    /**
+     * start Syncer (without its window) when it isn't running
+     */
+    "startSyncer": boolean;
+
+    /**
      * Updates
      * check GitHub for new versions and install them on the next start
      */

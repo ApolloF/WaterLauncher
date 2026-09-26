@@ -29,6 +29,74 @@ type Saves struct {
 	Folders   []syncer.Folder `json:"folders"`
 }
 
+// SyncerStatus is how WaterLauncher and Syncer get on, for Settings.
+type SyncerStatus struct {
+	Installed   bool   `json:"installed"`
+	Version     string `json:"version,omitempty"`
+	Outdated    bool   `json:"outdated"`  // too old for the launcher API
+	Connected   bool   `json:"connected"` // Syncer answered
+	Running     bool   `json:"running"`   // its launcher API is up (it may not have been asked to start)
+	Error       string `json:"error,omitempty"`
+	Syncing     bool   `json:"syncing"` // its sync engine runs
+	Paused      bool   `json:"paused"`
+	PausedUntil int64  `json:"pausedUntil,omitempty"`
+	BackingUp   bool   `json:"backingUp"`
+	LastBackup  int64  `json:"lastBackup,omitempty"`
+	Games       int    `json:"games"`
+	Conflicts   int    `json:"conflicts"`
+	CheckedAt   int64  `json:"checkedAt"`
+}
+
+// Syncer reports Syncer's state. With start it starts Syncer (without its
+// window) when it isn't running, as a launch would; otherwise it only
+// looks, so opening Settings doesn't start anything.
+func (s *SavesService) Syncer(start bool) SyncerStatus {
+	out := SyncerStatus{CheckedAt: time.Now().Unix()}
+	inst, ok := syncer.Find()
+	if !ok {
+		return out
+	}
+	out.Installed, out.Version = true, inst.Version
+	if inst.Version != "" && !inst.API() {
+		out.Outdated, out.Error = true, syncer.ErrOutdated.Error()
+		return out
+	}
+	ctx, cancel := context.WithTimeout(s.c.ctx, 15*time.Second)
+	defer cancel()
+	cl, err := syncer.Dial(ctx, start)
+	switch {
+	case errors.Is(err, syncer.ErrOutdated):
+		out.Outdated, out.Error = true, err.Error()
+		return out
+	case err != nil && !start:
+		return out // not running, and not asked to start it
+	case err != nil:
+		out.Error = "Syncer didn't answer"
+		return out
+	}
+	defer cl.Close()
+	out.Running = true
+	st, err := cl.Status(ctx)
+	if err != nil {
+		out.Error = err.Error()
+		out.Outdated = strings.Contains(err.Error(), "API version")
+		return out
+	}
+	out.Connected = true
+	if st.Version != "" {
+		out.Version = strings.TrimPrefix(st.Version, "v")
+	}
+	out.Syncing, out.Paused, out.BackingUp = st.Syncthing, st.Paused, st.BackingUp
+	out.Games, out.Conflicts = st.Games, st.Conflicts
+	if !st.PausedTill.IsZero() {
+		out.PausedUntil = st.PausedTill.Unix()
+	}
+	if !st.LastBackup.IsZero() {
+		out.LastBackup = st.LastBackup.Unix()
+	}
+	return out
+}
+
 // SavesService is the game's saves, through Syncer.
 type SavesService struct {
 	c *Core
@@ -69,13 +137,17 @@ func (s *SavesService) Saves(id int64, fresh bool) (Saves, error) {
 	out.Installed = true
 	ctx, cancel := context.WithTimeout(s.c.ctx, 15*time.Second)
 	defer cancel()
-	cl, err := syncer.Dial(ctx, true)
+	start := s.c.Settings.Get().StartSyncer
+	cl, err := syncer.Dial(ctx, start)
 	if errors.Is(err, syncer.ErrOutdated) {
 		out.Outdated, out.Error = true, err.Error()
 		return out, nil
 	}
 	if err != nil {
 		out.Error = "Syncer didn't answer"
+		if !start {
+			out.Error = "Syncer isn't running"
+		}
 		return out, nil
 	}
 	defer cl.Close()
@@ -159,14 +231,19 @@ func (c *Core) registerWithSyncer() {
 // from another PC, then waits for Syncer to finish syncing.
 func (c *Core) savesBeforeStep(g library.Game, known *bool) launch.Step {
 	title := g.DisplayTitle()
-	return launch.Step{ID: "savesBefore", Label: "Sync saves", Timeout: 4 * time.Minute,
+	return launch.Step{ID: "savesBefore", Label: "Sync saves", Timeout: 7 * time.Minute,
 		Run: func(ctx context.Context, sc *launch.StepContext) error {
 			sc.Progress("Asking Syncer…")
+			cfg := c.Settings.Get()
 			dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			cl, err := syncer.Dial(dctx, true)
+			cl, err := syncer.Dial(dctx, cfg.StartSyncer)
 			cancel()
 			if errors.Is(err, syncer.ErrOutdated) {
 				return err
+			}
+			if err != nil && !cfg.StartSyncer {
+				sc.Progress("Syncer isn't running")
+				return nil
 			}
 			if err != nil {
 				return errors.New("Syncer didn't answer")
@@ -196,7 +273,7 @@ func (c *Core) savesBeforeStep(g library.Game, known *bool) launch.Step {
 					ids = append(ids, f.ID)
 				}
 			}
-			wait := time.Minute
+			wait := time.Duration(cfg.SyncWait) * time.Second
 			if conflicts > 0 {
 				a, err := sc.Ask(ctx, fmt.Sprintf("%s has two versions of a save. Pick the one to keep in Syncer first, so you don't play on the wrong one.", title), []launch.Option{
 					{ID: "open", Label: "Open Syncer"},
@@ -225,7 +302,7 @@ func (c *Core) savesBeforeStep(g library.Game, known *bool) launch.Step {
 				case a == "cancel":
 					return launch.ErrCancel
 				case a == "wait":
-					wait = 2*time.Minute + 30*time.Second
+					wait = max(wait, 2*time.Minute+30*time.Second)
 				}
 			}
 			if len(ids) == 0 {
@@ -256,11 +333,16 @@ func (c *Core) savesBeforeStep(g library.Game, known *bool) launch.Step {
 func (c *Core) savesAfterStep(g library.Game, known *bool, wait bool) launch.Step {
 	return launch.Step{ID: "savesAfter", Label: "Back up saves", Timeout: 3 * time.Minute,
 		Run: func(ctx context.Context, sc *launch.StepContext) error {
+			start := c.Settings.Get().StartSyncer
 			dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			cl, err := syncer.Dial(dctx, true)
+			cl, err := syncer.Dial(dctx, start)
 			cancel()
 			if errors.Is(err, syncer.ErrOutdated) {
 				return err
+			}
+			if err != nil && !start {
+				sc.Progress("Syncer isn't running")
+				return nil
 			}
 			if err != nil {
 				return errors.New("Syncer didn't answer")

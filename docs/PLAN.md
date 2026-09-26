@@ -342,6 +342,36 @@ On `fix/tester-feedback`, from a tester's screenshots of v1.2.
 
 The mock takes `?layout=console|orbit` and `?games=N` for trying layouts with a bigger library.
 
+## 21. Controller, look and feel (2026-09-26)
+
+On `fix/controller-and-polish`, from the maintainer's own list after section 20.
+
+1. **Input**:
+   - The left stick points one way at a time (the axis pushed furthest), and it no longer lets go of a held D-pad direction when it wobbles at rest, which stopped the D-pad repeating.
+   - The DualSense touchpad click opens Search, like Create: the Search prompt showed a rectangle, which on a DualSense is the touchpad.
+   - Prompts are drawn for what's in use: PlayStation shapes (Options and Create as the small buttons they are), Xbox letters, or keyboard keys while the keyboard is used or no controller is connected. Every prompt can be clicked.
+   - One press arriving twice (Steam's desktop configuration turns the controller into a keyboard while WaterLauncher reads the same controller) is dropped.
+   - The controller in use goes in the log.
+2. **Sections**: L1 / R1 (Q / E, PageUp / PageDown) step through Home, Library and Search from anywhere, shown as tabs at the top of each. Library's filters moved to L2 / R2, Orbit's zoom too; a Console game's details keep L1 / R1 for the previous and next game.
+3. **Keyboard**: Esc on Home opens Quick access (which has desktop mode, and says F11), M opens it, F searches. In Search, typed letters go into the search and Enter goes to the results.
+4. **Haptics**: firmer, fixed-length effects the controller doesn't lose (a tick to move, a bump at an edge, confirm, a double pulse for errors, a swell to launch), played by the controller layer's own clock. Every move and every edge now gives one.
+5. **Desktop mode with a controller** (`lib/desknav.ts`): the stick and D-pad move focus to the nearest control that way, ✕ presses it, ○ backs out, L1 / R1 step through the sidebar, Options opens Settings, Create jumps to the search box. The cover grid moves its own selection and lets focus leave at its edges.
+6. **Resolution**: big picture is zoomed with CSS `zoom` instead of a transform, so it's laid out and drawn at the screen's own resolution (sharp at 4K, readable at 720p). 16:10 screens get extra height and 21:9 extra width instead of bars.
+7. **Orbit**: bubbles are the game's key art with its logo (a new `tile`, 384² made from the hero and logo; put together in the interface until it's fetched), drawn at their largest size and scaled down so they stay sharp; the selected game's backdrop fills the screen behind them. Opening a game grows its bubble into sharp full-size art while the rest fly out, instead of fading to ghosts behind the details. A class name clash that squashed the open view is gone.
+8. **Backdrops**: Steam screenshots as uploaded (often 4K) rather than the 1920 copies, stored at 2560 wide. A game without a backdrop gets its hero or cover blurred into a soft background instead of a small picture stretched over the screen. `meta.Version` 3 fetches metadata once more.
+9. **Metadata for well-known games** (`TestMatchAudit` runs 75 real names through the real game database and store search: 68 matched before, 73 now):
+   - Scene folder names lose their version before the dots become spaces ("Elden.Ring.v1.10-FitGirl" → "Elden Ring"), and "version 1.0.3179" goes too.
+   - Brand prefixes ("Marvel's", "Tom Clancy's") and well-known abbreviations ("GTA V", "RDR2") are understood; editions are stripped for store titles too.
+   - The Steam store search tries the name without its edition and with the abbreviation written out.
+   - Steam's CDN art files are tried when its store API lists nothing (delisted games).
+   - Epic's catalog (the launcher's own token, no sign-in) gives Epic-only games their art and details.
+10. **New on this PC** (was Found on this PC, whose △ hint pointed nowhere): games matched only by folder name come first with a Check badge and open their page, which asks "Is this …?": that's right, pick the right game from the Steam store, or not a game (hidden).
+11. **Syncer**: *Settings → Saves* (and big picture Settings) shows whether Syncer is installed, running and connected, its games, last backup, paused syncing and saves with two versions, with the one thing to do about it. New: how long to wait for a sync before playing, and whether to start Syncer when it isn't running.
+12. **Playing**: the interface stays up until the game's own window is in front (up to 25 s), instead of showing the desktop while the game loads, and comes back as soon as the game is gone rather than after its session ends; a launcher handing over to its game just steps it aside again. Big picture's window opens full screen from its first frame.
+13. The Settings icon is a gear.
+
+The mock also takes `?art=steam` (real art from Steam's CDN, from the browser) and `?syncer=missing|old|off`, and `window.mockPad("down")` presses a controller button.
+
 ## To-do (maintainer)
 
 - [ ] **Back up the release key** before the next release: `go run ./tools/release backup <file>` in a terminal (it asks for a password). Keep the file offline and the password elsewhere. Without it, losing this PC strands v1.1+ users on their version ([RELEASING.md](RELEASING.md)).

@@ -5,7 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ApolloF/WaterLauncher/internal/launch"
 	"github.com/ApolloF/WaterLauncher/internal/logx"
+	"github.com/ApolloF/WaterLauncher/internal/platform"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -23,6 +25,7 @@ type Shell struct {
 	uiMode   string // "desktop" or "bigpicture": what the main window shows
 	gameMode bool   // the main window was closed for a game
 	closing  bool   // WaterLauncher closes a window itself (not the user)
+	waitGame int    // counts closeMainWhenGameInFront calls, so only the latest acts
 }
 
 // NewShell makes the shell.
@@ -73,6 +76,12 @@ func (s *Shell) newMain(mode string) *application.WebviewWindow {
 	if mode == "bigpicture" {
 		url = "/?mode=bigpicture"
 	}
+	start := application.WindowStateNormal
+	if mode == "bigpicture" {
+		// Full screen from the first frame, rather than a window that
+		// grows once the interface has loaded.
+		start = application.WindowStateFullscreen
+	}
 	w := application.Get().Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",
 		Title:            "WaterLauncher",
@@ -81,6 +90,7 @@ func (s *Shell) newMain(mode string) *application.WebviewWindow {
 		MinWidth:         980,
 		MinHeight:        620,
 		Frameless:        true,
+		StartState:       start,
 		BackgroundColour: application.NewRGB(10, 14, 19),
 		URL:              url,
 		Windows:          application.WindowsWindow{Theme: application.SystemDefault},
@@ -118,6 +128,46 @@ func (s *Shell) closeMainForGame() {
 	s.mu.Lock()
 	s.closing = false
 	s.mu.Unlock()
+}
+
+// closeMainWhenGameInFront closes the interface once the game's own window
+// is in front, so the launch sequence stays on screen until the game shows
+// instead of the desktop in between (games and stores can take a while
+// to open a window). It gives up waiting after a while: some games show
+// their window from a process that isn't theirs.
+func (s *Shell) closeMainWhenGameInFront(isGame func(pid uint32) bool) {
+	s.mu.Lock()
+	s.waitGame++
+	turn := s.waitGame
+	s.mu.Unlock()
+	go func() {
+		deadline := time.Now().Add(25 * time.Second)
+		for time.Now().Before(deadline) {
+			if pid := platform.ForegroundPID(); pid != 0 && isGame(pid) {
+				time.Sleep(700 * time.Millisecond) // let it settle full screen first
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		s.mu.Lock()
+		stale := turn != s.waitGame
+		s.mu.Unlock()
+		if !stale && s.c.Launch.Current().Phase == launch.Running {
+			s.closeMainForGame()
+		}
+	}()
+}
+
+// reopenForGame brings the interface back as soon as the game has gone
+// (its session ends a few seconds later), if it was closed for it.
+func (s *Shell) reopenForGame() {
+	s.mu.Lock()
+	s.waitGame++ // a close still waiting for the game is off
+	reopen := s.gameMode
+	s.mu.Unlock()
+	if reopen {
+		s.OpenMain()
+	}
 }
 
 // gameEnded brings the interface back when it was closed for the game.

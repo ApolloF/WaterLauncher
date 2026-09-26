@@ -35,5 +35,6 @@ export type {
     Saves,
     ScanState,
     StoreAccount,
+    SyncerStatus,
     UpdateState
 } from "./models.js";

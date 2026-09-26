@@ -381,7 +381,7 @@ func (c *Core) pruneArt() {
 	keep := map[string]bool{}
 	for _, g := range c.Lib.Games() {
 		if m := g.Meta; m != nil {
-			keep[m.Cover], keep[m.Hero], keep[m.Backdrop], keep[m.Logo], keep[m.Icon] = true, true, true, true, true
+			keep[m.Cover], keep[m.Hero], keep[m.Backdrop], keep[m.Tile], keep[m.Logo], keep[m.Icon] = true, true, true, true, true, true
 		}
 	}
 	if len(keep) == 0 {

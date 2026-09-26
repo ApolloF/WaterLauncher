@@ -212,7 +212,20 @@ func (c *Core) plan(g library.Game) launch.Plan {
 				}
 			}
 			if cfg.CloseWhilePlaying {
-				c.shell.closeMainForGame()
+				c.shell.closeMainWhenGameInFront(c.Launch.IsGame)
+			}
+		},
+		// The game's gone from the screen: the interface comes back now,
+		// not only once the session has ended a few seconds later. If it
+		// was a launcher handing over, it steps aside again for the game.
+		OnGone: func() {
+			if c.Settings.Get().CloseWhilePlaying {
+				c.shell.reopenForGame()
+			}
+		},
+		OnBack: func() {
+			if c.Settings.Get().CloseWhilePlaying {
+				c.shell.closeMainWhenGameInFront(c.Launch.IsGame)
 			}
 		},
 	}

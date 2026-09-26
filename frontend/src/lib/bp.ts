@@ -20,11 +20,11 @@ export function continuePlaying(games: Game[], n = 10): Game[] {
   return (played.length ? played : games.filter((g) => g.installed).sort(byTitle)).slice(0, n);
 }
 
-/** New finds and games that need a check, newest first. */
+/** Games that need a check (first), then new finds, newest first. */
 export function newFinds(games: Game[], n = 10): Game[] {
   return games
     .filter((g) => g.installed && (isFresh(g) || g.needsReview))
-    .sort((a, b) => b.addedAt - a.addedAt)
+    .sort((a, b) => Number(b.needsReview) - Number(a.needsReview) || b.addedAt - a.addedAt)
     .slice(0, n);
 }
 

@@ -110,16 +110,29 @@ func TestRealFetch(t *testing.T) {
 	if os.Getenv("WL_REAL_META") == "" {
 		t.Skip("set WL_REAL_META=1 to fetch from Steam")
 	}
-	c := NewClient(t.TempDir(), nil)
+	dir := os.Getenv("WL_REAL_META_DIR") // to look at the art afterwards
+	if dir == "" {
+		dir = t.TempDir()
+	}
+	c := NewClient(dir, nil)
 	for _, id := range []int{1086940, 413150} {
 		m, err := c.Fetch(context.Background(), Request{SteamAppID: id})
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("%d: cover=%s hero=%s backdrop=%s logo=%s accent=%s dualsense=%q year=%d genres=%v dev=%v\n  %s", id, m.Cover, m.Hero, m.Backdrop, m.Logo, m.Accent, m.DualSense, m.ReleaseYear, m.Genres, m.Developers, m.Description)
-		if m.Cover == "" || m.Hero == "" || m.Backdrop == "" {
+		t.Logf("%d: cover=%s hero=%s backdrop=%s tile=%s logo=%s accent=%s dualsense=%q year=%d genres=%v dev=%v\n  %s", id, m.Cover, m.Hero, m.Backdrop, m.Tile, m.Logo, m.Accent, m.DualSense, m.ReleaseYear, m.Genres, m.Developers, m.Description)
+		if m.Cover == "" || m.Hero == "" || m.Backdrop == "" || m.Tile == "" {
 			t.Errorf("%d: missing art", id)
 		}
+	}
+	// A game only Epic sells, from Epic's catalog.
+	m, err := c.Fetch(context.Background(), Request{Title: "Fortnite", EpicApp: "fn:4fe75bbc5a674f4f9b356b5c90567da5:Fortnite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("epic: cover=%s hero=%s backdrop=%s tile=%s logo=%s dev=%v year=%d source=%s", m.Cover, m.Hero, m.Backdrop, m.Tile, m.Logo, m.Developers, m.ReleaseYear, m.Source)
+	if m.Cover == "" || m.Hero == "" || m.Backdrop == "" || m.Source != "Epic" {
+		t.Error("epic: missing art")
 	}
 }
 

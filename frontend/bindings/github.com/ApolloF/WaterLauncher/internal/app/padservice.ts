@@ -15,8 +15,8 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as pad$0 from "../pad/models.js";
 
 /**
- * Rumble plays a short effect ("tick", "confirm", "error") when the user
- * has haptics on.
+ * Rumble plays a short effect ("tick", "bump", "confirm", "error",
+ * "launch") when the user has haptics on.
  */
 export function Rumble(effect: string): $CancellablePromise<void> {
     return $Call.ByID(639488354, effect);

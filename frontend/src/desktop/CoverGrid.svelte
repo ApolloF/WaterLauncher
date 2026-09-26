@@ -46,18 +46,24 @@
     if (!games.length) return;
     const i = selIndex < 0 ? 0 : selIndex;
     let next = i;
+    // At the grid's edge a key isn't used, so focus can move on from it
+    // (a controller moves to the sidebar or the details that way).
     switch (e.key) {
       case "ArrowRight":
-        next = Math.min(games.length - 1, i + 1);
+        if (i % cols === cols - 1 || i === games.length - 1) return;
+        next = i + 1;
         break;
       case "ArrowLeft":
-        next = Math.max(0, i - 1);
+        if (i % cols === 0) return;
+        next = i - 1;
         break;
       case "ArrowDown":
+        if (Math.floor(i / cols) === rows - 1) return;
         next = Math.min(games.length - 1, i + cols);
         break;
       case "ArrowUp":
-        next = Math.max(0, i - cols);
+        if (i < cols) return;
+        next = i - cols;
         break;
       case "Home":
         next = 0;

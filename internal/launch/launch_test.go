@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -162,6 +163,34 @@ func TestLauncherHandoff(t *testing.T) {
 	s := wait(t, r)
 	if s.Phase != Ended || played != 8 {
 		t.Errorf("phase %s, played %d; want ended after 8 s", s.Phase, played)
+	}
+}
+
+// A gap between a launcher and its game: gone, then back, then gone for good.
+func TestGoneAndBack(t *testing.T) {
+	game := platform.Proc{PID: 100, PPID: 1, Name: "game.exe"}
+	f := &fakePC{
+		paths:  map[uint32]string{100: gameDir + `\game.exe`},
+		frames: [][]platform.Proc{{game}, {}, {game}, {game}, {}},
+	}
+	m, r := newTest(f)
+	var mu sync.Mutex
+	var events []string
+	note := func(e string) func() {
+		return func() {
+			mu.Lock()
+			events = append(events, e)
+			mu.Unlock()
+		}
+	}
+	_ = m.Launch(context.Background(), Plan{Dirs: []string{gameDir},
+		Start: func() (uint32, string, error) { return 100, "direct", nil },
+		OnRun: note("run"), OnGone: note("gone"), OnBack: note("back")})
+	wait(t, r)
+	mu.Lock()
+	defer mu.Unlock()
+	if got := strings.Join(events, " "); got != "run gone back gone" {
+		t.Errorf("events %q, want %q", got, "run gone back gone")
 	}
 }
 

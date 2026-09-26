@@ -178,18 +178,18 @@ func (w *metaWorker) fetch(ctx context.Context, id int64) error {
 	// game by name, for art and details. A clear hit also settles which game
 	// it is (unless the user already said), so it doesn't wait for a check.
 	if g.SteamAppID == 0 && g.GogID == "" && (appID == 0 || !g.Confirmed && g.Confidence < storeMatchConfidence) {
-		if hits, err := w.client.SearchSteam(ctx, g.DisplayTitle()); err == nil {
-			if h, ok := pickStoreHit(g.DisplayTitle(), hits); ok {
-				appID = h.AppID
-				if _, err := w.c.Lib.Update(id, func(g *library.Game) { adoptStoreMatch(g, h) }); err == nil {
-					w.gameChanged(id)
-				}
-			}
-		} else if errors.Is(err, meta.ErrRateLimited) {
+		h, ok, err := w.searchStore(ctx, g.DisplayTitle())
+		if errors.Is(err, meta.ErrRateLimited) {
 			return err
 		}
+		if ok {
+			appID = h.AppID
+			if _, err := w.c.Lib.Update(id, func(g *library.Game) { adoptStoreMatch(g, h) }); err == nil {
+				w.gameChanged(id)
+			}
+		}
 	}
-	m, err := w.client.Fetch(ctx, meta.Request{Title: g.DisplayTitle(), SteamAppID: appID, GogID: g.GogID, Keep: g.Meta})
+	m, err := w.client.Fetch(ctx, meta.Request{Title: g.DisplayTitle(), SteamAppID: appID, GogID: g.GogID, EpicApp: g.EpicApp, Keep: g.Meta})
 	if err != nil {
 		if !errors.Is(err, meta.ErrRateLimited) {
 			w.mu.Lock()
@@ -202,6 +202,28 @@ func (w *metaWorker) fetch(ctx context.Context, id int64) error {
 	_, err = w.c.Lib.Update(id, func(g *library.Game) { g.Meta = m })
 	w.gameChanged(id)
 	return err
+}
+
+// searchStore looks a title up on the Steam store: as it is, then without
+// its edition ("The Witcher 3: Wild Hunt - Complete Edition" finds
+// nothing, "The Witcher 3: Wild Hunt" does) and with a well-known
+// abbreviation written out ("GTA V").
+func (w *metaWorker) searchStore(ctx context.Context, title string) (meta.StoreHit, bool, error) {
+	tried := map[string]bool{}
+	for _, t := range []string{title, scan.StripEdition(title), scan.ExpandAbbrev(title)} {
+		if t == "" || tried[scan.Normalize(t)] {
+			continue
+		}
+		tried[scan.Normalize(t)] = true
+		hits, err := w.client.SearchSteam(ctx, t)
+		if err != nil {
+			return meta.StoreHit{}, false, err
+		}
+		if h, ok := pickStoreHit(t, hits); ok {
+			return h, true, nil
+		}
+	}
+	return meta.StoreHit{}, false, nil
 }
 
 // How a game the game database doesn't know was identified by a Steam

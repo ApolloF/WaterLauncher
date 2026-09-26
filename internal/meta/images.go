@@ -32,6 +32,7 @@ const (
 	Cover    Kind = "cover"    // portrait, 2:3
 	Hero     Kind = "hero"     // wide banner behind the details
 	Backdrop Kind = "backdrop" // 16:9, sharp enough to fill the big picture screen
+	Tile     Kind = "tile"     // square: key art with the logo, for round tiles
 	Logo     Kind = "logo"     // transparent title logo
 	Icon     Kind = "icon"
 )
@@ -41,8 +42,10 @@ const (
 	maxImagePixels = 24_000_000 // refuse decompression bombs (8K banners still fit)
 )
 
-// Largest stored size per kind; larger images are scaled down.
-var maxWidth = map[Kind]int{Cover: 600, Hero: 1920, Backdrop: 1920, Logo: 800, Icon: 128}
+// Largest stored size per kind; larger images are scaled down. Backdrops
+// are kept at 2560 wide: they fill the screen, and at 1440p and 4K a
+// 1920-wide one is visibly soft.
+var maxWidth = map[Kind]int{Cover: 600, Hero: 1920, Backdrop: 2560, Tile: 384, Logo: 800, Icon: 128}
 
 // minBackdropWidth is the least a backdrop may have after cropping to
 // 16:9: anything smaller looks soft full screen, and the hero does as well.
@@ -161,6 +164,56 @@ func crop16x9(img image.Image) image.Image {
 	sub := image.NewNRGBA(image.Rect(0, 0, w, h))
 	draw.Draw(sub, sub.Bounds(), img, image.Point{X: x, Y: y}, draw.Src)
 	return sub
+}
+
+// makeTile draws a game's round tile: the middle of its key art (the hero,
+// which has no text on it) with the logo over it, the way a console shows
+// a game. Without a hero, the top of the cover, whose title is part of it.
+// Nil when there's neither.
+func makeTile(hero, logo, cover image.Image) image.Image {
+	const side = 384
+	dst := image.NewRGBA(image.Rect(0, 0, side, side))
+	square := func(img image.Image, fromTop int) image.Rectangle {
+		b := img.Bounds()
+		s := min(b.Dx(), b.Dy())
+		at := image.Pt(b.Min.X+(b.Dx()-s)/2, b.Min.Y+(b.Dy()-s)*fromTop/100)
+		return image.Rectangle{Min: at, Max: at.Add(image.Pt(s, s))}
+	}
+	switch {
+	case hero != nil:
+		draw.CatmullRom.Scale(dst, dst.Bounds(), hero, square(hero, 50), draw.Src, nil)
+	case cover != nil:
+		draw.CatmullRom.Scale(dst, dst.Bounds(), cover, square(cover, 18), draw.Src, nil)
+		return dst
+	default:
+		return nil
+	}
+	if logo == nil {
+		return dst
+	}
+	// Darken behind the logo, so a light logo reads on light art.
+	for y := 0; y < side; y++ {
+		for x := 0; x < side; x++ {
+			dx := (float64(x) - side/2) / (side * 0.42)
+			dy := (float64(y) - side*0.56) / (side * 0.26)
+			if d := dx*dx + dy*dy; d < 1 {
+				i := dst.PixOffset(x, y)
+				k := 1 - 0.38*(1-d)
+				for j := 0; j < 3; j++ {
+					dst.Pix[i+j] = uint8(float64(dst.Pix[i+j]) * k)
+				}
+			}
+		}
+	}
+	lb := logo.Bounds()
+	maxW, maxH := side*74/100, side*40/100
+	w, h := maxW, lb.Dy()*maxW/max(1, lb.Dx())
+	if h > maxH {
+		w, h = lb.Dx()*maxH/max(1, lb.Dy()), maxH
+	}
+	at := image.Pt((side-w)/2, side*56/100-h/2)
+	draw.CatmullRom.Scale(dst, image.Rectangle{Min: at, Max: at.Add(image.Pt(max(1, w), max(1, h)))}, logo, lb, draw.Over, nil)
+	return dst
 }
 
 // storeImage encodes an image the pipeline made itself (a cropped cover).

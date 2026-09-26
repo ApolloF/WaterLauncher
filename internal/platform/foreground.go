@@ -20,7 +20,19 @@ var (
 	procDispatchMessageW         = user32.NewProc("DispatchMessageW")
 	procPostThreadMessageW       = user32.NewProc("PostThreadMessageW")
 	procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
+	procGetForegroundWindow      = user32.NewProc("GetForegroundWindow")
 )
+
+// ForegroundPID is the process whose window is in front, 0 when none is.
+func ForegroundPID() uint32 {
+	h, _, _ := procGetForegroundWindow.Call()
+	if h == 0 {
+		return 0
+	}
+	var pid uint32
+	procGetWindowThreadProcessId.Call(h, uintptr(unsafe.Pointer(&pid)))
+	return pid
+}
 
 const (
 	eventSystemForeground  = 0x0003

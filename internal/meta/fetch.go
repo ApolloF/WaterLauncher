@@ -3,7 +3,9 @@ package meta
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -12,14 +14,19 @@ import (
 )
 
 // Version marks what Fetch gathers; metadata from an older version is
-// fetched again (2: backdrops).
-const Version = 2
+// fetched again (2: backdrops; 3: full-size backdrops, round tiles, Steam's
+// own art files when its store lists none).
+const Version = 3
+
+// reShotSize is the size Steam puts in a screenshot's file name.
+var reShotSize = regexp.MustCompile(`\.\d+x\d+(\.jpg)`)
 
 // Request says which game to fetch metadata for.
 type Request struct {
 	Title      string
 	SteamAppID int
 	GogID      string
+	EpicApp    string        // namespace:item:appName, for games Steam doesn't have
 	Keep       *library.Meta // previous metadata: user-chosen art is kept
 }
 
@@ -58,9 +65,14 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*library.Meta, error) {
 				urls.hero = append(urls.hero, d.HeaderImage)
 			}
 			// The first screenshots, picked by the developer, make a sharp
-			// backdrop that isn't the same picture as the game's tile.
+			// backdrop that isn't the same picture as the game's tile. The
+			// store lists them at 1920 wide; the file as uploaded (often
+			// 4K) has the same name without the size.
 			for _, s := range d.Screenshots[:min(2, len(d.Screenshots))] {
 				if s.Full != "" {
+					if orig := reShotSize.ReplaceAllString(s.Full, "$1"); orig != s.Full {
+						urls.backdrop = append(urls.backdrop, orig)
+					}
 					urls.backdrop = append(urls.backdrop, s.Full)
 				}
 			}
@@ -82,6 +94,13 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*library.Meta, error) {
 		} else {
 			errs = append(errs, err)
 		}
+		// Steam's CDN keeps an app's library art under fixed names, also
+		// for games its store no longer lists: tried when nothing better
+		// worked.
+		base := fmt.Sprintf("%ssteam/apps/%d/", steamAssetBase, r.SteamAppID)
+		urls.cover = append(urls.cover, base+"library_600x900_2x.jpg", base+"library_600x900.jpg")
+		urls.hero = append(urls.hero, base+"library_hero.jpg", base+"header.jpg")
+		urls.backdrop = append(urls.backdrop, base+"library_hero_2x.jpg")
 	}
 	if r.GogID != "" {
 		if p, err := c.gogProduct(ctx, r.GogID); err == nil {
@@ -100,6 +119,37 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*library.Meta, error) {
 			}
 			if u := gogURL(p.Images.Icon); u != "" {
 				urls.icon = append(urls.icon, u)
+			}
+		} else {
+			errs = append(errs, err)
+		}
+	}
+	// Epic's catalog, for games in an Epic library that Steam doesn't sell.
+	if r.SteamAppID == 0 && r.EpicApp != "" {
+		if e, err := c.epicGame(ctx, r.EpicApp); err == nil {
+			found = true
+			if m.Source == "" {
+				m.Source = "Epic"
+			}
+			if m.Description == "" {
+				m.Description = firstParagraph(plainText(e.Description))
+			}
+			if len(m.Developers) == 0 && e.Developer != "" {
+				m.Developers = []string{e.Developer}
+			}
+			if m.ReleaseYear == 0 && len(e.ReleaseInfo) > 0 {
+				m.ReleaseYear = yearOf(e.ReleaseInfo[0].DateAdded)
+			}
+			if u := e.image("DieselGameBoxTall", "OfferImageTall"); u != "" {
+				urls.cover = append(urls.cover, u)
+			}
+			// The wide box art is 2560×1440: a backdrop as it is, and a hero.
+			if u := e.image("DieselGameBox", "OfferImageWide", "DieselStoreFrontWide"); u != "" {
+				urls.hero = append(urls.hero, u)
+				urls.backdrop = append(urls.backdrop, u)
+			}
+			if u := e.image("DieselGameBoxLogo"); u != "" {
+				urls.logo = append(urls.logo, u)
 			}
 		} else {
 			errs = append(errs, err)
@@ -126,18 +176,15 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*library.Meta, error) {
 		}
 	}
 	if !found {
+		// Busy: try again later rather than settle for less.
 		for _, err := range errs {
 			if errors.Is(err, ErrRateLimited) {
 				return nil, err
 			}
 		}
-		if len(errs) > 0 {
-			return nil, errors.Join(errs...)
-		}
-		return nil, errNotFound
 	}
 
-	var heroImg, coverImg image.Image
+	var heroImg, coverImg, logoImg image.Image
 	m.Cover, coverImg = c.firstImage(ctx, urls.cover, Cover)
 	m.Hero, heroImg = c.firstImage(ctx, urls.hero, Hero)
 	// Failing screenshots, the middle of a large hero (Steam's 3840-wide
@@ -146,10 +193,24 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*library.Meta, error) {
 		urls.backdrop = append(urls.backdrop, urls.hero[0])
 	}
 	m.Backdrop, _ = c.firstImage(ctx, urls.backdrop, Backdrop)
-	m.Logo, _ = c.firstImage(ctx, urls.logo, Logo)
+	m.Logo, logoImg = c.firstImage(ctx, urls.logo, Logo)
 	m.Icon, _ = c.firstImage(ctx, urls.icon, Icon)
+	if !found {
+		// Only Steam's art files answered (a game its store no longer
+		// lists): that's still worth keeping.
+		if m.Cover == "" && m.Hero == "" {
+			if len(errs) > 0 {
+				return nil, errors.Join(errs...)
+			}
+			return nil, errNotFound
+		}
+		m.Source = "Steam"
+	}
 	if m.Cover == "" && heroImg != nil {
 		m.Cover, _ = c.storeImage(cropCover(heroImg), Cover)
+	}
+	if t := makeTile(heroImg, logoImg, coverImg); t != nil {
+		m.Tile, _ = c.storeImage(t, Tile)
 	}
 	switch {
 	case coverImg != nil:
@@ -188,10 +249,12 @@ func keepOverrides(m, old *library.Meta) {
 			if !slices.Contains(old.ArtOverrides, "backdrop") {
 				m.Backdrop = "" // the user's hero, not a screenshot, behind the game
 			}
+			m.Tile = "" // made from the store's hero; the interface puts the user's together
 		case "backdrop":
 			m.Backdrop = old.Backdrop
 		case "logo":
 			m.Logo = old.Logo
+			m.Tile = ""
 		}
 	}
 	m.ArtOverrides = old.ArtOverrides

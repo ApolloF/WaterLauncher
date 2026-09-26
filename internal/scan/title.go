@@ -26,12 +26,20 @@ var romans = map[string]string{
 	"xi": "11", "xii": "12", "xiii": "13", "xiv": "14", "xv": "15", "xvi": "16",
 }
 
+// Brand names stores put before some titles and folders often leave out:
+// "Marvel's Spider-Man: Miles Morales", "Tom Clancy's The Division".
+var reBrand = regexp.MustCompile(`(?i)^\s*(marvel|tom clancy|sid meier|clive barker|american mcgee)['’]?s\s+`)
+
 // LooseKey is a more forgiving Normalize for names that don't match
 // exactly, as folder names often don't: apostrophes, possessive and
-// plural s, Roman numerals and a leading "The" don't count, so
-// "Assassin Creed Black Flag Resynced" and "Assassin's Creed: Black Flag
-// Resynced" get the same key, as do "Baldurs Gate III" and "Baldur's Gate 3".
+// plural s, Roman numerals, a leading "The" and a leading brand ("Marvel's")
+// don't count, so "Assassin Creed Black Flag Resynced" and "Assassin's
+// Creed: Black Flag Resynced" get the same key, as do "Baldurs Gate III"
+// and "Baldur's Gate 3".
 func LooseKey(s string) string {
+	if b := reBrand.FindStringIndex(s); b != nil && len(s)-b[1] >= 6 {
+		s = s[b[1]:]
+	}
 	// One pass, as the game database's 50,000 titles all go through here.
 	out := make([]byte, 0, len(s))
 	var buf [64]byte
@@ -85,31 +93,66 @@ var (
 	reBrackets = regexp.MustCompile(`\s*[\[\(\{][^\]\)\}]*[\]\)\}]`)
 	// Trailing scene group or repacker tags: "-RUNE", "_CODEX", " - FitGirl Repack".
 	reGroup = regexp.MustCompile(`(?i)[\s._-]+(rune|codex|empress|tenoke|plaza|skidrow|reloaded|cpy|flt|hoodlum|razor1911|dodi|fitgirl|elamigos|kaos|xatab|gog|repack|multi\d*|goldberg|onlinefix|online-fix)(\s*repacks?)?$`)
-	// Version and build suffixes: "v1.0.3", "Build 12345", "Update 5".
-	reVersion = regexp.MustCompile(`(?i)[\s._-]+(v\s?\d[\w.]*|build[\s._-]?\d+|update[\s._-]?\d+|\d+\.\d+(\.\d+)*)$`)
+	// Version and build suffixes: "v1.0.3", "Build 12345", "Update 5",
+	// "version 1.0.3179".
+	reVersion = regexp.MustCompile(`(?i)[\s._-]+(v\s?\d[\w.]*|version[\s._-]?\d[\w.]*|build[\s._-]?\d+|update[\s._-]?\d+|\d+\.\d+(\.\d+)*)$`)
 	reSpaces  = regexp.MustCompile(`\s+`)
 )
 
 // CleanTitle turns an installer or folder name into a game title:
-// "Baldurs.Gate.3-RUNE" → "Baldurs Gate 3", "Hades [FitGirl Repack]" → "Hades".
+// "Baldurs.Gate.3-RUNE" → "Baldurs Gate 3", "Hades [FitGirl Repack]" → "Hades",
+// "Elden.Ring.v1.10-FitGirl" → "Elden Ring".
 func CleanTitle(s string) string {
 	s = strings.TrimSpace(s)
 	s = reBrackets.ReplaceAllString(s, "")
-	// Scene-style names use dots or underscores instead of spaces.
-	if !strings.Contains(s, " ") && (strings.Count(s, ".") >= 2 || strings.Count(s, "_") >= 1) {
-		s = strings.NewReplacer(".", " ", "_", " ").Replace(s)
-	}
-	for i := 0; i < 3; i++ {
-		before := s
-		s = reGroup.ReplaceAllString(s, "")
-		s = reVersion.ReplaceAllString(s, "")
-		s = strings.TrimRight(s, " .-_")
-		if s == before {
-			break
+	// Scene-style names use dots or underscores instead of spaces. The
+	// tags and version come off first, while "v1.10" still has its dot.
+	scene := !strings.Contains(s, " ") && (strings.Count(s, ".") >= 2 || strings.Count(s, "_") >= 1)
+	strip := func() {
+		for i := 0; i < 3; i++ {
+			before := s
+			s = reGroup.ReplaceAllString(s, "")
+			s = reVersion.ReplaceAllString(s, "")
+			s = strings.TrimRight(s, " .-_")
+			if s == before {
+				break
+			}
 		}
+	}
+	strip()
+	if scene {
+		s = strings.NewReplacer(".", " ", "_", " ").Replace(s)
+		strip()
 	}
 	s = reSpaces.ReplaceAllString(s, " ")
 	return strings.TrimSpace(s)
+}
+
+// Edition and cut suffixes: "Deluxe Edition", "GOTY", "- Complete Edition".
+var reEdition = regexp.MustCompile(`(?i)\s*[-:–]?\s*(digital\s+)?(deluxe|ultimate|complete|definitive|goty|game of the year|gold|premium|special|collector'?s|standard|enhanced|anniversary|remastered|director'?s cut)(\s+(edition|version|cut))?\s*$`)
+
+// StripEdition drops an edition from a title: "The Witcher 3: Wild Hunt -
+// Complete Edition" → "The Witcher 3: Wild Hunt".
+func StripEdition(s string) string { return strings.TrimSpace(reEdition.ReplaceAllString(s, "")) }
+
+// Abbreviations folders are often named by, followed by a space, a
+// number or nothing ("GTA V", "RDR2"; not "Codename"), or Roman numerals
+// straight after GTA ("GTAIV").
+var reAbbrev = regexp.MustCompile(`(?i)^(?:(gta|rdr|nfs|cod)(\s+.*|\d.*|)|(gta)([ivx]+))$`)
+var abbrevs = map[string]string{"gta": "Grand Theft Auto", "rdr": "Red Dead Redemption", "nfs": "Need for Speed", "cod": "Call of Duty"}
+
+// ExpandAbbrev writes out a title that starts with a well-known
+// abbreviation: "GTA V" → "Grand Theft Auto V", "RDR2" → "Red Dead
+// Redemption 2". Other titles come back as they are.
+func ExpandAbbrev(s string) string {
+	m := reAbbrev.FindStringSubmatch(strings.TrimSpace(s))
+	switch {
+	case m == nil:
+		return s
+	case m[3] != "":
+		return abbrevs[strings.ToLower(m[3])] + " " + m[4]
+	}
+	return strings.TrimSpace(abbrevs[strings.ToLower(m[1])] + " " + strings.TrimSpace(m[2]))
 }
 
 // SortTitle drops leading articles so "The Sims 4" sorts under S.

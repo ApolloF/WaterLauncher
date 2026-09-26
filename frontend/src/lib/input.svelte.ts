@@ -50,6 +50,30 @@ export function dispatch(intent: Intent, repeat = false) {
   base?.(intent, repeat);
 }
 
+/** Where input last came from: it picks the button prompts. */
+export const input = $state<{ source: "pad" | "keyboard" }>({ source: "pad" });
+
+// Steam's desktop configuration turns a controller into a keyboard while
+// WaterLauncher reads the same controller, so one press can arrive twice:
+// once from the controller and once as a key. The second copy is dropped.
+const TWIN_MS = 120;
+const lastSeen = new Map<Intent, { from: "pad" | "keyboard"; at: number }>();
+let lastPad = 0;
+
+/** Delivers input from a source, unless it is the other source's copy of the same press. */
+export function dispatchFrom(from: "pad" | "keyboard", intent: Intent, repeat = false): boolean {
+  const now = performance.now();
+  const prev = lastSeen.get(intent);
+  if (prev && prev.from !== from && now - prev.at < TWIN_MS) return false;
+  // Held: keys auto-repeat faster than the controller does; its own repeat wins.
+  if (from === "keyboard" && repeat && now - lastPad < 400) return false;
+  lastSeen.set(intent, { from, at: now });
+  if (from === "pad") lastPad = now;
+  if (input.source !== from) input.source = from;
+  dispatch(intent, repeat);
+  return true;
+}
+
 const KEYS: Record<string, Intent> = {
   ArrowUp: "up",
   ArrowDown: "down",
@@ -65,11 +89,16 @@ const KEYS: Record<string, Intent> = {
   I: "info",
   y: "info",
   Y: "info",
-  q: "menu",
-  Q: "menu",
   m: "menu",
   M: "menu",
-  Home: "home",
+  Tab: "menu",
+  f: "view",
+  F: "view",
+  "/": "view",
+  q: "lb",
+  Q: "lb",
+  e: "rb",
+  E: "rb",
   PageUp: "lb",
   PageDown: "rb",
   "[": "lt",
@@ -77,6 +106,26 @@ const KEYS: Record<string, Intent> = {
   "-": "lt",
   "=": "rt",
   "+": "rt",
+  Home: "home",
+};
+
+/** The keys shown in prompts while the keyboard is in use. */
+export const KEY_LABELS: Record<Intent, string> = {
+  up: "↑",
+  down: "↓",
+  left: "←",
+  right: "→",
+  confirm: "Enter",
+  back: "Esc",
+  action: "X",
+  info: "I",
+  menu: "M",
+  view: "F",
+  home: "Home",
+  lb: "Q",
+  rb: "E",
+  lt: "[",
+  rt: "]",
 };
 
 /** Maps a key to an intent, unless the user is typing in a field. */
@@ -91,11 +140,13 @@ export function keyIntent(e: KeyboardEvent): Intent | null {
 
 export const pad = $state<PadState>({ connected: false, name: "", kind: "other", dualSense: false, battery: -1, wireless: false });
 
-/** Which glyph set to show: the user's choice, else the controller in use. */
-export function glyphSet(): "playstation" | "xbox" {
+/** Which prompts to show: keys while the keyboard is in use (or no
+ * controller is connected), else the user's choice, else the controller's. */
+export function glyphSet(): "playstation" | "xbox" | "keyboard" {
+  if (input.source === "keyboard" || !pad.connected) return "keyboard";
   const g = lib.settings?.glyphs ?? "auto";
   if (g === "playstation" || g === "xbox") return g;
-  return pad.connected && pad.kind === "playstation" ? "playstation" : pad.connected ? "xbox" : "playstation";
+  return pad.kind === "playstation" ? "playstation" : "xbox";
 }
 
 let audio: AudioContext | null = null;
@@ -117,11 +168,16 @@ function beep(freq: number, ms: number, gain = 0.035) {
   }
 }
 
-/** Feedback for moving focus, confirming and errors: rumble and sound. */
+/** Feedback for moving focus, reaching an edge, confirming and errors: rumble and sound. */
 export const feedback = {
   move() {
     api.pad.rumble("tick");
     beep(1250, 30);
+  },
+  /** Nothing further that way. */
+  edge() {
+    api.pad.rumble("bump");
+    beep(330, 45, 0.03);
   },
   confirm() {
     api.pad.rumble("confirm");
@@ -132,7 +188,23 @@ export const feedback = {
     api.pad.rumble("error");
     beep(220, 140, 0.05);
   },
+  launch() {
+    api.pad.rumble("launch");
+    beep(660, 80, 0.04);
+    setTimeout(() => beep(990, 120, 0.04), 90);
+  },
 };
+
+/** Moves focus if `next` differs, with a tick, or bumps at the edge. Returns whether it moved. */
+export function moveTo<T>(cur: T, next: T | null | undefined, set: (v: T) => void): boolean {
+  if (next === null || next === undefined || next === cur) {
+    feedback.edge();
+    return false;
+  }
+  set(next);
+  feedback.move();
+  return true;
+}
 
 let lastLight = "";
 /** Tints the DualSense lightbar (the Go side checks the user's setting). */
