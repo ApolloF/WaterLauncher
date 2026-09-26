@@ -5,7 +5,6 @@
 package identify
 
 import (
-	"bufio"
 	"compress/gzip"
 	"context"
 	"encoding/gob"
@@ -15,16 +14,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ApolloF/WaterLauncher/internal/platform"
+	"github.com/ApolloF/gamekit/ludusavi"
 )
 
 const (
-	manifestURL  = "https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/master/data/manifest.yaml"
+	manifestURL  = ludusavi.URL
 	refreshAfter = 7 * 24 * time.Hour
 	indexName    = "manifest-index-v1.gob.gz"
 	maxManifest  = 256 << 20
@@ -160,88 +159,15 @@ func writeIndex(p string, es []Entry) error {
 	return os.Rename(tmp, p)
 }
 
-// Parse reads the manifest YAML. The file is machine-generated with a fixed
-// two-space layout, so a line scanner does the job at a fraction of the
-// time and memory a YAML decoder needs.
+// Parse reads the manifest YAML (see gamekit/ludusavi).
 func Parse(r io.Reader) ([]Entry, error) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 1<<20), 1<<20)
-	var (
-		out     []Entry
-		cur     *Entry
-		alias   string
-		section string
-	)
-	aliases := map[string][]string{} // canonical name → alias names
-	finish := func() {
-		if cur == nil {
-			return
-		}
-		if alias != "" {
-			aliases[alias] = append(aliases[alias], cur.Name)
-		} else {
-			out = append(out, *cur)
-		}
-		cur, alias = nil, ""
-	}
-	for sc.Scan() {
-		line := sc.Text()
-		if line == "" || line == "---" || strings.HasPrefix(strings.TrimSpace(line), "#") {
-			continue
-		}
-		ind := len(line) - len(strings.TrimLeft(line, " "))
-		t := strings.TrimSpace(line)
-		switch {
-		case ind == 0:
-			finish()
-			cur = &Entry{Name: unquote(strings.TrimSuffix(t, ":"))}
-			section = ""
-		case cur == nil:
-		case ind == 2:
-			k, v, _ := strings.Cut(t, ":")
-			section = k
-			if k == "alias" {
-				alias = unquote(strings.TrimSpace(v))
-			}
-		case ind == 4 && section == "installDir":
-			if dir := unquote(strings.TrimSuffix(strings.TrimSuffix(t, " {}"), ":")); dir != "" {
-				cur.InstallDirs = append(cur.InstallDirs, dir)
-			}
-		case ind == 4 && (section == "steam" || section == "gog"):
-			k, v, ok := strings.Cut(t, ":")
-			if !ok || k != "id" {
-				continue
-			}
-			v = strings.TrimSpace(v)
-			if section == "steam" {
-				if id, err := strconv.Atoi(v); err == nil && id > 0 {
-					cur.SteamID = id
-				}
-			} else if _, err := strconv.ParseInt(v, 10, 64); err == nil {
-				cur.GogID = v
-			}
-		}
-	}
-	finish()
-	if err := sc.Err(); err != nil {
+	es, err := ludusavi.Parse(r)
+	if err != nil {
 		return nil, err
 	}
-	for i := range out {
-		out[i].Aliases = aliases[out[i].Name]
+	out := make([]Entry, len(es))
+	for i, e := range es {
+		out[i] = Entry{Name: e.Name, SteamID: e.SteamID, GogID: e.GogID, InstallDirs: e.InstallDirs, Aliases: e.Aliases}
 	}
 	return out, nil
-}
-
-func unquote(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 && s[0] == '"' {
-		if u, err := strconv.Unquote(s); err == nil {
-			return u
-		}
-		return s[1 : len(s)-1]
-	}
-	if len(s) >= 2 && s[0] == '\'' {
-		return strings.ReplaceAll(s[1:len(s)-1], "''", "'")
-	}
-	return s
 }
