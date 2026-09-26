@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **v0.1 to v0.4 released** as prereleases (2026-09-25 and 26). **v0.5** (Syncer) is built (2026-09-26): [gamekit](https://github.com/ApolloF/gamekit) v0.1.0 is published and used by WaterLauncher, and the Syncer side is in [ApolloF/syncer#7](https://github.com/ApolloF/syncer/pull/7). v0.5 is released once Syncer 0.11 is out. **v0.6** (add-ons) is built too: the protocol is in [addon-protocol.md](addon-protocol.md), and the DLSS Updater side is in [ApolloF/dlssupdater#1](https://github.com/ApolloF/dlssupdater/pull/1). v0.7 (owned games) is next.
+Status: **v0.1 to v0.6 released** as prereleases (2026-09-25 and 26). Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). **v0.7** (owned games that aren't installed) is in progress.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
