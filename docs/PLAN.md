@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **v0.1 to v0.7 released** as prereleases (2026-09-25 and 26). Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). **v1.0** (installer, auto-update, start with Windows, signing support, and fixes from a final audit) is built on `feature/v1.0-release`; code signing itself waits for a certificate ([SIGNING.md](SIGNING.md)). Section 17 has the v1.0 details and what comes after.
+Status: **v1.0 released** (2026-09-26), after v0.1 to v0.7 as prereleases. Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). Code signing waits for a certificate ([SIGNING.md](SIGNING.md)). Section 17 has the v1.0 details and what comes after.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
