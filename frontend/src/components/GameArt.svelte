@@ -7,21 +7,32 @@
 
   let { game, kind = "cover" }: { game: Game; kind?: "cover" | "hero" | "backdrop" } = $props();
 
-  // A backdrop falls back to the hero, and a hero to the cover, which is
-  // better than nothing.
-  const src = $derived(
-    kind === "cover" ? game.meta?.cover : ((kind === "backdrop" ? game.meta?.backdrop : undefined) ?? game.meta?.hero ?? game.meta?.cover),
+  // What to try, in order: a backdrop falls back to the hero, and a hero to
+  // the cover, which is better than nothing. A picture that fails to load
+  // moves on to the next.
+  const chain = $derived(
+    (kind === "cover" ? [game.meta?.cover] : kind === "hero" ? [game.meta?.hero, game.meta?.cover] : [game.meta?.backdrop, game.meta?.hero, game.meta?.cover]).filter(
+      (s): s is string => !!s,
+    ),
   );
-  const a = $derived(artFor(game.key));
-  let failed = $state(false);
+  let at = $state(0);
+  // Start over only when the pictures themselves change, not on every
+  // update of the game (playtime, favourite).
+  const chainKey = $derived(chain.join("|"));
   $effect(() => {
-    src;
-    failed = false;
+    chainKey;
+    at = 0;
   });
+  const src = $derived(chain[at]);
+  // A stand-in for a backdrop (a small banner or the cover) would look
+  // pixelated stretched over the screen: it's blurred into a soft
+  // background instead.
+  const soft = $derived(kind === "backdrop" && !!src && src !== game.meta?.backdrop);
+  const a = $derived(artFor(game.key));
 </script>
 
-{#if src && !failed}
-  <img class="img" {src} alt="" loading="lazy" decoding="async" draggable="false" onerror={() => (failed = true)} />
+{#if src}
+  <img class="img" class:soft {src} alt="" loading="lazy" decoding="async" draggable="false" onerror={() => at++} />
 {:else}
   <div class="art" style:background={a.sky} aria-hidden="true">
     {#if a.starOp}<div class="layer" style:background-image={a.stars} style:opacity={a.starOp}></div>{/if}
@@ -44,6 +55,10 @@
   }
   .img {
     object-fit: cover;
+  }
+  .img.soft {
+    filter: blur(28px) saturate(1.25) brightness(0.85);
+    transform: scale(1.15);
   }
   .art {
     overflow: hidden;

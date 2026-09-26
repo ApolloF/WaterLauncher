@@ -9,9 +9,10 @@
   import { lib } from "../lib/store.svelte";
   import { title, type Game } from "../lib/types";
   import Hints from "./Hints.svelte";
-  import { clamp } from "./nav";
+  import Sections, { type Section } from "./Sections.svelte";
 
   type Props = {
+    width: number;
     height: number;
     onplay: (g: Game) => void;
     oninfo: (g: Game) => void;
@@ -22,6 +23,9 @@
     onfound: () => void;
     onmenu: () => void;
     ondesktop: () => void;
+    onsection: (s: Section) => void;
+    foundCount: number;
+    checkCount: number;
   };
   let p: Props = $props();
 
@@ -34,7 +38,7 @@
   const rows = $derived(
     [
       { id: "cont", label: cont.some((g) => (g.lastPlayed ?? 0) || (g.storeLastPlayed ?? 0)) ? "Continue playing" : "Your games", games: cont, extra: false },
-      { id: "fresh", label: "New on this PC", sub: "Found automatically. Press △ to check the match.", games: fresh, extra: false },
+      { id: "fresh", label: "New on this PC", sub: p.checkCount ? `${p.checkCount} matched by folder name only: open one to check it` : "Found in the last week", games: fresh, extra: false },
       { id: "lib", label: "Library", sub: `A–Z · ${all.length} games`, games: libRow, extra: true },
     ].filter((r) => r.games.length > 0 || r.extra) as Row[],
   );
@@ -43,7 +47,7 @@
     { id: "home", label: "Home", icon: "grid", run: () => (zone = 0) },
     { id: "library", label: "Library", icon: "folder", run: p.onlibrary },
     { id: "search", label: "Search", icon: "search", run: p.onsearch },
-    { id: "found", label: "Found on this PC", icon: "scan", run: p.onfound, badge: fresh.length },
+    { id: "found", label: "New on this PC", icon: "scan", run: p.onfound, badge: p.checkCount },
     { id: "settings", label: "Settings", icon: "gear", run: p.onsettings },
     { id: "desktop", label: "Desktop mode", icon: "tv", run: p.ondesktop },
   ]);
@@ -74,8 +78,9 @@
     useInput((intent) => {
       if (zone === "rail") {
         if (intent === "up" || intent === "down") {
-          const j = clamp(ri + (intent === "up" ? -1 : 1), 0, rail.length - 1);
-          if (j !== ri) ((ri = j), feedback.move());
+          const j = ri + (intent === "up" ? -1 : 1);
+          if (j >= 0 && j < rail.length) ((ri = j), feedback.move());
+          else feedback.edge();
         } else if (intent === "right" || intent === "back") {
           zone = lastRow;
           feedback.move();
@@ -101,24 +106,27 @@
           return;
         case "right":
           if (i < n - 1) (setIdx(zone, i + 1), feedback.move());
+          else feedback.edge();
           return;
         case "up":
           if (zone > 0) {
             zone = zone - 1;
             setIdx(zone, Math.min(idx[zone], rowLen(rows[zone]) - 1));
             feedback.move();
-          }
+          } else feedback.edge();
           return;
         case "down":
           if (zone < rows.length - 1) {
             zone = zone + 1;
             setIdx(zone, Math.min(idx[zone], rowLen(rows[zone]) - 1));
             feedback.move();
-          }
+          } else feedback.edge();
           return;
         case "confirm": {
           const g = r.games[i];
-          if (g) p.onplay(g);
+          // A game matched by folder name only opens its page, to check it.
+          if (g?.needsReview) p.oninfo(g);
+          else if (g) p.onplay(g);
           else if (r.extra) (feedback.confirm(), p.onlibrary());
           return;
         }
@@ -163,10 +171,7 @@
 
   <div class="content" style:transform="translateY({slide}px)">
     <div class="header">
-      <button type="button" class="search" onclick={p.onsearch}>
-        <Icon name="search" size={22} stroke={2} />
-        <span>Search {all.length} games</span>
-      </button>
+      <Sections current="home" onpick={p.onsection} />
       <div class="grow"></div>
       {#if pad.connected}
         <span class="status"><Icon name="pad" size={26} stroke={1.8} />{pad.battery >= 0 ? `${pad.battery}%` : pad.wireless ? "Bluetooth" : "USB"}</span>
@@ -197,14 +202,14 @@
                 {#if !g.meta?.cover}<span class="cover-title">{title(g)}</span>{/if}
               {:else}
                 <span class="shade"></span>
-                {#if row.id === "fresh"}<span class="badge">{g.sourceLabel}</span>{/if}
+                {#if row.id === "fresh"}<span class="badge" class:check={g.needsReview}>{g.needsReview ? "Check" : g.sourceLabel}</span>{/if}
                 <span class="info">
                   {#if g.meta?.logo && row.id === "cont"}
                     <img class="logo" src={g.meta.logo} alt="" />
                   {:else}
                     <span class="name">{title(g)}</span>
                   {/if}
-                  <span class="meta">{row.id === "fresh" ? (g.needsReview ? "Needs a check: " : "") + g.matchHow : metaLine(g)}</span>
+                  <span class="meta">{row.id === "fresh" ? (g.needsReview ? "Check: found by its folder name" : g.how) : metaLine(g)}</span>
                 </span>
               {/if}
             </button>
@@ -242,9 +247,8 @@
             { button: "menu", label: "Quick access" },
           ]
         : [
-            { button: "confirm", label: "Play" },
+            { button: "confirm", label: focusGame?.needsReview ? "Check" : "Play" },
             { button: "info", label: "Details" },
-            { button: "view", label: "Search" },
             { button: "menu", label: "Quick access" },
           ]}
     />
@@ -296,19 +300,6 @@
     display: flex;
     align-items: center;
     gap: 26px;
-  }
-  .search {
-    width: 560px;
-    height: 56px;
-    border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(18, 26, 35, 0.85);
-    color: #9ba8b5;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 0 18px;
-    font-size: 20px;
   }
   .grow {
     flex: 1;
@@ -389,6 +380,10 @@
     font-size: 15px;
     font-weight: 700;
     letter-spacing: 0.03em;
+  }
+  .badge.check {
+    background: #ffd28a;
+    color: #1d1405;
   }
   .info {
     position: absolute;

@@ -36,3 +36,12 @@ export function OpenSyncer(): $CancellablePromise<void> {
 export function Saves(id: number, fresh: boolean): $CancellablePromise<$models.Saves> {
     return $Call.ByID(959841094, id, fresh);
 }
+
+/**
+ * Syncer reports Syncer's state. With start it starts Syncer (without its
+ * window) when it isn't running, as a launch would; otherwise it only
+ * looks, so opening Settings doesn't start anything.
+ */
+export function Syncer(start: boolean): $CancellablePromise<$models.SyncerStatus> {
+    return $Call.ByID(820300844, start);
+}

@@ -135,6 +135,10 @@ type Plan struct {
 	After  []Step
 	Played func(seconds int64) // adds playtime; called every minute and at the end
 	OnRun  func()              // the game was seen running
+	// OnGone and OnBack follow the game's processes after that: gone is the
+	// first look without any (it may have exited, or be handing over from a
+	// launcher), back is when they're seen again before the session ends.
+	OnGone, OnBack func()
 	// How long to wait for the game to show up: stores and Steam can take
 	// a while (updates, shader caches, sign-in).
 	DetectTimeout time.Duration
@@ -175,6 +179,14 @@ func (m *Manager) Current() Session {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return copySession(m.cur)
+}
+
+// IsGame reports whether a process belongs to the game being played.
+func (m *Manager) IsGame(pid uint32) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.tracked[pid]
+	return ok
 }
 
 // Active reports whether a session is under way.
@@ -359,6 +371,9 @@ func (m *Manager) follow(ctx context.Context, p Plan, pid uint32) int64 {
 			last = now
 			if len(game) == 0 {
 				quiet++
+				if quiet == 1 && p.OnGone != nil {
+					p.OnGone()
+				}
 				if quiet >= m.quiet {
 					flush()
 					secs := int64(total)
@@ -366,6 +381,9 @@ func (m *Manager) follow(ctx context.Context, p Plan, pid uint32) int64 {
 					return secs
 				}
 				break
+			}
+			if quiet > 0 && p.OnBack != nil {
+				p.OnBack()
 			}
 			quiet = 0
 			total += gap

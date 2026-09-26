@@ -1,7 +1,7 @@
 import { Events, Window } from "@wailsio/runtime";
 import { AccountsService, AddonsService, LaunchService, LibraryService, PadService, SavesService, SettingsService, UpdateService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
 import type { Api } from "./api";
-import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, Startup, StoreHit, UpdateState } from "./types";
+import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, Startup, StoreHit, SyncerStatus, UpdateState } from "./types";
 
 // The generated bindings return the Go structs; their JSON matches ./types.
 const g = (p: Promise<unknown>) => p as Promise<Game>;
@@ -55,6 +55,7 @@ export const realApi: Api = {
     get: (id, fresh = false) => SavesService.Saves(id, fresh) as Promise<unknown> as Promise<Saves>,
     openSyncer: () => SavesService.OpenSyncer(),
     getSyncer: () => SavesService.GetSyncer(),
+    syncer: (start) => SavesService.Syncer(start) as Promise<unknown> as Promise<SyncerStatus>,
   },
 
   accounts: {

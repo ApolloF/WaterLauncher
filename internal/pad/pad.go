@@ -61,6 +61,7 @@ const (
 	initGamepad = 0x00002000
 
 	evQuit           = 0x100
+	evJoystickHat    = 0x602
 	evGamepadAxis    = 0x650
 	evGamepadDown    = 0x651
 	evGamepadUp      = 0x652
@@ -75,10 +76,46 @@ const (
 	connWireless = 2
 )
 
-// SDL gamepad buttons → actions.
+// SDL gamepad buttons → actions. A DualSense's touchpad click does what
+// Create does: the touchpad is the big button next to it, and the one
+// people press when a prompt shows a rectangle.
 var buttons = map[uint8]string{
 	0: Confirm, 1: Back, 2: Action, 3: Info, 4: View, 5: Home, 6: Menu,
-	9: LB, 10: RB, 11: Up, 12: Down, 13: Left, 14: Right,
+	9: LB, 10: RB, 11: Up, 12: Down, 13: Left, 14: Right, 20: View,
+}
+
+// isDir reports whether an action is a direction (which repeats when held).
+func isDir(a string) bool { return a == Up || a == Down || a == Left || a == Right }
+
+// dirIndex numbers the directions 0–3.
+func dirIndex(a string) int {
+	switch a {
+	case Down:
+		return 1
+	case Left:
+		return 2
+	case Right:
+		return 3
+	}
+	return 0
+}
+
+// pulse is one step of a rumble effect: motor strengths (low is the big,
+// slow motor; high the small, quick one), how long, and a pause after.
+type pulse struct {
+	lo, hi  uint16
+	ms, gap uint32
+}
+
+// Rumble effects. They are short but firm enough to feel on a DualSense,
+// whose motors are emulated by its haptic actuators and need a moment to
+// spin up: very short, weak pulses get lost, so ticks came and went.
+var effects = map[string][]pulse{
+	"tick":    {{lo: 0x0800, hi: 0x5800, ms: 32}},                                            // moving
+	"bump":    {{lo: 0x5000, hi: 0x1000, ms: 42}},                                            // can't go further
+	"confirm": {{lo: 0x3800, hi: 0x7800, ms: 60}},                                            // choosing
+	"error":   {{lo: 0x9000, hi: 0x3000, ms: 85, gap: 70}, {lo: 0x9000, hi: 0x3000, ms: 85}}, // not possible
+	"launch":  {{lo: 0x2000, hi: 0x6000, ms: 50, gap: 90}, {lo: 0x6000, hi: 0x8000, ms: 140}},
 }
 
 const (
@@ -107,6 +144,10 @@ type Manager struct {
 	mu    sync.Mutex
 	state State
 	mode  Mode
+
+	// The rumble effect playing, only touched on the SDL thread.
+	pulses  []pulse
+	pulseAt time.Time
 }
 
 // Start loads SDL and begins reading controllers. onAction gets every
@@ -201,25 +242,31 @@ func (m *Manager) start(s *sdl, passive bool) error {
 	return nil
 }
 
-// Rumble plays a short effect: "tick" (moving), "confirm" or "error".
+// Rumble plays a short effect: "tick" (moving), "bump" (at an edge),
+// "confirm", "error" or "launch". A new effect replaces one still playing.
 func (m *Manager) Rumble(effect string) {
-	var lo, hi uint16
-	var ms uint32
-	switch effect {
-	case "tick":
-		lo, hi, ms = 0, 0x2800, 22
-	case "confirm":
-		lo, hi, ms = 0x3800, 0x5000, 55
-	case "error":
-		lo, hi, ms = 0x7000, 0x2000, 140
-	default:
+	p, ok := effects[effect]
+	if !ok {
 		return
 	}
 	m.do(func(s *sdl) {
-		if gp := m.current(); gp != 0 {
-			s.rumbleGamepad.Call(gp, uintptr(lo), uintptr(hi), uintptr(ms))
-		}
+		m.pulses, m.pulseAt = p, time.Time{}
+		m.playPulses(s, time.Now())
 	})
+}
+
+// playPulses starts the effect's next pulse when it is due. SDL stops a
+// pulse by itself when its time is up (while the loop keeps polling).
+func (m *Manager) playPulses(s *sdl, now time.Time) {
+	if len(m.pulses) == 0 || now.Before(m.pulseAt) {
+		return
+	}
+	p := m.pulses[0]
+	m.pulses = m.pulses[1:]
+	m.pulseAt = now.Add(time.Duration(p.ms+p.gap) * time.Millisecond)
+	if gp := m.current(); gp != 0 {
+		s.rumbleGamepad.Call(gp, uintptr(p.lo), uintptr(p.hi), uintptr(p.ms))
+	}
 }
 
 // SetLight sets the DualSense lightbar to a #rrggbb colour.
@@ -298,8 +345,21 @@ func (m *Manager) loop() {
 	}()
 
 	ev := make([]byte, 128)
-	held := map[string]time.Time{} // direction → next repeat time
+	// What is held down (a D-pad button, or the left stick) and when its
+	// direction repeats next. They're kept apart so that the stick resting
+	// in the middle doesn't let go of a D-pad direction, and the other way
+	// round.
+	type hold struct {
+		action string
+		next   time.Time
+	}
+	held := map[string]*hold{}
 	axes := map[uint8]int16{}
+	// A controller whose mapping has no D-pad buttons still reports its
+	// D-pad as a hat; that's used instead, for controllers that never send
+	// D-pad buttons (the others send both).
+	dpadButtons := map[uint32]bool{}
+	hats := map[uint32]uint8{}
 	battery := time.NewTicker(30 * time.Second)
 	defer battery.Stop()
 	// SDL is polled; how often depends on what could happen. Without a
@@ -318,7 +378,7 @@ func (m *Manager) loop() {
 			return pollNoPad
 		case passive:
 			return pollPassive
-		case time.Since(lastInput) < 5*time.Second || len(held) > 0:
+		case time.Since(lastInput) < 5*time.Second || len(held) > 0 || len(m.pulses) > 0:
 			return pollActive
 		}
 		return pollIdle
@@ -332,16 +392,63 @@ func (m *Manager) loop() {
 		}
 	}
 
-	press := func(a string) {
+	press := func(key, a string) {
 		if a == "" {
 			return
 		}
 		m.onAction(a, false)
-		if a == Up || a == Down || a == Left || a == Right {
-			held[a] = time.Now().Add(repeatDelay)
+		if isDir(a) {
+			held[key] = &hold{action: a, next: time.Now().Add(repeatDelay)}
 		}
 	}
-	release := func(a string) { delete(held, a) }
+	release := func(key string) { delete(held, key) }
+	// The left stick points one way at a time: the axis pushed furthest, so
+	// a stick pushed a little off straight doesn't move diagonally in two
+	// steps. It lets go below stickOff (hysteresis, so a wobbly stick
+	// doesn't stutter), and turns when the other axis clearly takes over.
+	stick := func() {
+		x, y := int(axes[0]), int(axes[1])
+		along := func(a string) int {
+			switch a {
+			case Left:
+				return -x
+			case Right:
+				return x
+			case Up:
+				return -y
+			case Down:
+				return y
+			}
+			return 0
+		}
+		cur := ""
+		if h := held["stick"]; h != nil {
+			cur = h.action
+		}
+		want := cur
+		if want != "" && along(want) < stickOff {
+			want = ""
+		}
+		ax, ay := max(x, -x), max(y, -y)
+		if ax > stickOn || ay > stickOn {
+			strongest := Right
+			switch {
+			case ax >= ay && x < 0:
+				strongest = Left
+			case ay > ax && y < 0:
+				strongest = Up
+			case ay > ax:
+				strongest = Down
+			}
+			if want == "" || strongest != want && along(strongest) > along(want)+6000 {
+				want = strongest
+			}
+		}
+		if want != cur {
+			release("stick")
+			press("stick", want)
+		}
+	}
 
 	for {
 		select {
@@ -350,6 +457,7 @@ func (m *Manager) loop() {
 			return
 		case fn := <-m.cmds:
 			fn(s)
+			retune()
 			continue
 		case mode := <-m.modeCh:
 			if !off {
@@ -358,6 +466,9 @@ func (m *Manager) loop() {
 			}
 			clear(held)
 			clear(axes)
+			clear(dpadButtons)
+			clear(hats)
+			m.pulses = nil
 			off, passive = mode == Off, mode == Passive
 			if !off {
 				if err := m.start(s, mode == Passive); err != nil {
@@ -375,6 +486,8 @@ func (m *Manager) loop() {
 		if off {
 			continue
 		}
+		stickMoved := false
+		var hatNow map[uint32]uint8 // hat positions reported in this batch
 		for {
 			r, _, _ := s.pollEvent.Call(uintptr(unsafe.Pointer(&ev[0])))
 			if !ok(r) {
@@ -390,11 +503,23 @@ func (m *Manager) loop() {
 				m.open(s, which)
 			case evGamepadRemoved:
 				m.close(s, which)
+				delete(dpadButtons, which)
+				delete(hats, which)
 			case evGamepadDown:
 				m.use(s, which)
-				press(buttons[ev[20]])
+				if b := ev[20]; b >= 11 && b <= 14 {
+					dpadButtons[which] = true
+				}
+				press("button"+strconv.Itoa(int(ev[20])), buttons[ev[20]])
 			case evGamepadUp:
-				release(buttons[ev[20]])
+				release("button" + strconv.Itoa(int(ev[20])))
+			case evJoystickHat:
+				if ev[20] == 0 {
+					if hatNow == nil {
+						hatNow = map[uint32]uint8{}
+					}
+					hatNow[which] = ev[21]
+				}
 			case evGamepadAxis:
 				m.use(s, which)
 				axis := ev[20]
@@ -402,20 +527,8 @@ func (m *Manager) loop() {
 				prev := axes[axis]
 				axes[axis] = v
 				switch axis {
-				case 0, 1: // left stick, with hysteresis so a wobbly stick doesn't stutter
-					neg, pos := Left, Right
-					if axis == 1 {
-						neg, pos = Up, Down
-					}
-					stick := func(a string, beyond, inside bool) {
-						if _, isHeld := held[a]; beyond && !isHeld {
-							press(a)
-						} else if inside && isHeld {
-							release(a)
-						}
-					}
-					stick(neg, v < -stickOn, v > -stickOff)
-					stick(pos, v > stickOn, v < stickOff)
+				case 0, 1: // left stick: both axes are read before deciding
+					stickMoved = true
 				case 4, 5: // triggers
 					a := LT
 					if axis == 5 {
@@ -428,13 +541,40 @@ func (m *Manager) loop() {
 			case evQuit:
 			}
 		}
-		now := time.Now()
-		for a, next := range held {
-			if now.After(next) {
-				m.onAction(a, true)
-				held[a] = now.Add(repeatEvery)
+		if stickMoved {
+			stick()
+		}
+		for which, v := range hatNow {
+			if dpadButtons[which] {
+				continue // its D-pad buttons came too
+			}
+			prev := hats[which]
+			hats[which] = v
+			for _, d := range [...]struct {
+				bit uint8
+				dir string
+			}{{1, Up}, {2, Right}, {4, Down}, {8, Left}} {
+				switch on, was := v&d.bit != 0, prev&d.bit != 0; {
+				case on && !was:
+					m.use(s, which)
+					press("hat"+d.dir, d.dir)
+				case !on && was:
+					release("hat" + d.dir)
+				}
 			}
 		}
+		now := time.Now()
+		var repeated [4]bool // the stick and D-pad held the same way repeat once
+		for _, h := range held {
+			if now.After(h.next) {
+				if d := dirIndex(h.action); !repeated[d] {
+					m.onAction(h.action, true)
+					repeated[d] = true
+				}
+				h.next = now.Add(repeatEvery)
+			}
+		}
+		m.playPulses(s, now)
 		retune()
 	}
 }

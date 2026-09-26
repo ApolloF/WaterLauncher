@@ -1,7 +1,7 @@
 // The frontend's one door to the Go side. In mock mode (`npm run dev:mock`)
 // the same interface is served by made-up data, so the interface can be
 // built and checked in a normal browser. Vite drops the unused one.
-import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, Startup, StoreHit, UpdateState } from "./types";
+import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, Startup, StoreHit, SyncerStatus, UpdateState } from "./types";
 import { realApi } from "./api.real";
 import { mockApi } from "./api.mock";
 
@@ -62,6 +62,8 @@ export interface Api {
     get(id: number, fresh?: boolean): Promise<Saves>;
     openSyncer(): Promise<void>;
     getSyncer(): Promise<void>;
+    /** Syncer's state; start starts it (without its window) when it isn't running. */
+    syncer(start: boolean): Promise<SyncerStatus>;
   };
 
   accounts: {
@@ -115,7 +117,7 @@ export interface Api {
 
   pad: {
     state(): Promise<PadState>;
-    rumble(effect: "tick" | "confirm" | "error"): void;
+    rumble(effect: "tick" | "bump" | "confirm" | "error" | "launch"): void;
     setLight(hex: string): void;
     onAction(cb: (action: string, repeat: boolean) => void): () => void;
     onState(cb: (s: PadState) => void): () => void;

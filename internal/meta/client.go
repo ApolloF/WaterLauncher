@@ -30,6 +30,10 @@ var allowedHosts = []string{
 	"steamcdn-a.akamaihd.net",
 	"api.gog.com",
 	".gog-statics.com",
+	"account-public-service-prod03.ol.epicgames.com",
+	"catalog-public-service-prod06.ol.epicgames.com",
+	"cdn1.epicgames.com",
+	"cdn2.unrealengine.com",
 	"www.steamgriddb.com",
 	"cdn2.steamgriddb.com",
 	".steamgriddb.com",
@@ -60,6 +64,8 @@ type Client struct {
 
 	mu        sync.Mutex
 	lastSteam time.Time
+	epicTok   string // Epic catalog token, until epicExp
+	epicExp   time.Time
 }
 
 // NewClient stores art in artDir; sgdbKey returns the SteamGridDB key ("" = none).

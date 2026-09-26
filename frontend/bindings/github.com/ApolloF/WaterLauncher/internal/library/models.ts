@@ -145,6 +145,11 @@ export interface Meta {
      * 16:9 full-screen background
      */
     "backdrop"?: string;
+
+    /**
+     * square: key art with the logo
+     */
+    "tile"?: string;
     "logo"?: string;
     "icon"?: string;
 

@@ -20,7 +20,7 @@
     notinstalled: "Not installed",
     favorites: "Favorites",
     recent: "Recently played",
-    found: "Found on this PC",
+    found: "New on this PC",
     hidden: "Hidden",
   };
   const heading = $derived(

@@ -37,6 +37,7 @@ type PadService struct {
 	// The interface asks for rumble on every move; cap it so a held
 	// direction doesn't turn into one long buzz.
 	lastRumble time.Time
+	lastPad    string // the controller last logged, for the log
 }
 
 // NewPadService binds the controller layer to core.
@@ -81,6 +82,27 @@ func (s *PadService) onState(st pad.State) {
 	if st.Error != "" {
 		logx.Printf("controller: %s", st.Error)
 	}
+	// Which controller is in use goes in the log, so a report about input
+	// says what it was.
+	desc := ""
+	if st.Connected {
+		conn := "USB"
+		if st.Wireless {
+			conn = "Bluetooth"
+		}
+		desc = st.Name + " (" + string(st.Kind) + ", " + conn + ")"
+	}
+	s.mu.Lock()
+	changed := desc != s.lastPad
+	s.lastPad = desc
+	s.mu.Unlock()
+	if changed {
+		if desc == "" {
+			logx.Printf("controller: none connected")
+		} else {
+			logx.Printf("controller: %s", desc)
+		}
+	}
 	s.c.emit(EventPadState, st)
 }
 
@@ -92,14 +114,14 @@ func (s *PadService) State() pad.State {
 	return s.mgr.State()
 }
 
-// Rumble plays a short effect ("tick", "confirm", "error") when the user
-// has haptics on.
+// Rumble plays a short effect ("tick", "bump", "confirm", "error",
+// "launch") when the user has haptics on.
 func (s *PadService) Rumble(effect string) {
 	if s.mgr == nil || !s.c.Settings.Get().Haptics {
 		return
 	}
 	s.mu.Lock()
-	if effect == "tick" && time.Since(s.lastRumble) < 60*time.Millisecond {
+	if (effect == "tick" || effect == "bump") && time.Since(s.lastRumble) < 70*time.Millisecond {
 		s.mu.Unlock()
 		return
 	}

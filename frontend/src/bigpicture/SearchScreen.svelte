@@ -8,8 +8,16 @@
   import { title, type Game } from "../lib/types";
   import Hints from "./Hints.svelte";
   import { gridStep } from "./nav";
+  import Sections, { type Section } from "./Sections.svelte";
 
-  let { onplay, oninfo, onfocus, onback }: { onplay: (g: Game) => void; oninfo: (g: Game) => void; onfocus: (g: Game | null) => void; onback: () => void } = $props();
+  let {
+    width,
+    onplay,
+    oninfo,
+    onfocus,
+    onback,
+    onsection,
+  }: { width: number; onplay: (g: Game) => void; oninfo: (g: Game) => void; onfocus: (g: Game | null) => void; onback: () => void; onsection: (s: Section) => void } = $props();
 
   const KEYS = [..."1234567890", ..."qwertyuiop", ..."asdfghjkl'", ..."zxcvbnm-:.", "space", "del", "clear", "done"];
   const COLS = 10;
@@ -17,6 +25,9 @@
   let zone = $state<"keys" | "results">("keys");
   let k = $state(11);
   let r = $state(0);
+  // Typing on a real keyboard: Enter then goes to the results instead of
+  // pressing the on-screen key under the highlight.
+  let typing = $state(false);
 
   const norm = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
   const results = $derived.by(() => {
@@ -26,7 +37,7 @@
     return base
       .filter((g) => norm(title(g)).includes(q))
       .sort((a, b) => Number(norm(title(b)).startsWith(q)) - Number(norm(title(a)).startsWith(q)) || a.sortTitle.localeCompare(b.sortTitle))
-      .slice(0, 12);
+      .slice(0, RCOLS * 2);
   });
   $effect(() => onfocus(zone === "results" ? (results[r] ?? null) : (results[0] ?? null)));
   $effect(() => {
@@ -44,13 +55,14 @@
     } else query += id;
   }
 
-  const RCOLS = 4;
+  const RCOLS = $derived(Math.max(4, Math.floor((width - 960 - 110 + 22) / 214)));
   // The bottom row has 4 wide keys, laid out under columns 0-1, 2-4, 5-7, 8-9.
   const wideCols = [0, 2, 5, 8];
   const isWide = (idx: number) => idx >= 40;
   const colOf = (idx: number) => (isWide(idx) ? wideCols[idx - 40] : idx % COLS);
 
   function moveKeys(intent: string) {
+    typing = false;
     if (isWide(k)) {
       if (intent === "left") k = k > 40 ? k - 1 : k;
       else if (intent === "right") {
@@ -82,7 +94,10 @@
         return;
       }
       if (zone === "keys") {
-        if (intent === "confirm") key(KEYS[k]);
+        if (intent === "confirm" && typing) {
+          if (results.length) ((zone = "results"), (r = 0), feedback.move());
+          else feedback.edge();
+        } else if (intent === "confirm") key(KEYS[k]);
         else if (intent === "action") key("del");
         else if (intent === "info") key("space");
         else if (["up", "down", "left", "right"].includes(intent)) {
@@ -98,7 +113,8 @@
         if (intent === "left" && r % RCOLS === 0) zone = "keys";
         else {
           const j = gridStep(r, results.length, RCOLS, intent);
-          if (j !== null) r = j;
+          if (j === null) return feedback.edge();
+          r = j;
         }
         feedback.move();
       } else return false;
@@ -108,9 +124,11 @@
   function onkeydown(e: KeyboardEvent) {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     // Typed characters go into the search, not to the shortcuts (X, I, Q, …).
-    if (e.key.length === 1 && e.key !== " " && /[\p{L}\p{N}'\-:.]/u.test(e.key)) {
+    const space = e.key === " " && typing && query !== "";
+    if (space || (e.key.length === 1 && e.key !== " " && /[\p{L}\p{N}'\-:.&!]/u.test(e.key))) {
       query += e.key;
       zone = "keys";
+      typing = true;
       e.stopPropagation();
       e.preventDefault();
     }
@@ -120,8 +138,8 @@
 <svelte:window onkeydowncapture={onkeydown} />
 
 <div class="search">
+  <div class="top"><Sections current="search" onpick={onsection} /></div>
   <div class="left">
-    <h1>Search</h1>
     <div class="field" class:focus={zone === "keys"}>
       <Icon name="search" size={28} stroke={2} />
       <span class="q">{query}<span class="caret"></span></span>
@@ -147,7 +165,7 @@
     {:else if results.length === 0}
       <p class="hint">Nothing matches “{query}”.</p>
     {:else}
-      <div class="results">
+      <div class="results" style:--cols={RCOLS}>
         {#each results as g, idx (g.id)}
           <button type="button" class="res" class:on={zone === "results" && idx === r} onclick={() => onplay(g)}>
             <span class="cover"><GameArt game={g} kind="cover" /></span>
@@ -182,19 +200,19 @@
     background: #0a0e13;
     color: #e8edf2;
   }
+  .top {
+    position: absolute;
+    left: 110px;
+    top: 44px;
+  }
   .left {
     position: absolute;
     left: 110px;
-    top: 60px;
+    top: 130px;
     width: 780px;
     display: flex;
     flex-direction: column;
     gap: 24px;
-  }
-  h1 {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: 52px;
   }
   .field {
     height: 76px;
@@ -264,7 +282,7 @@
   }
   .results {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
     gap: 22px;
   }
   .res {

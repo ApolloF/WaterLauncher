@@ -77,7 +77,7 @@ func TestVirtualGamepad(t *testing.T) {
 			return
 		}
 		open, _ := s.dll.FindProc("SDL_OpenJoystick")
-		d := sdlVirtualJoystickDesc{Type: 1, NAxes: 6, NButtons: 15, ButtonMask: 1<<15 - 1, AxisMask: 1<<6 - 1, Name: name}
+		d := sdlVirtualJoystickDesc{Type: 1, NAxes: 6, NButtons: 21, ButtonMask: 1<<21 - 1, AxisMask: 1<<6 - 1, Name: name}
 		d.Version = uint32(unsafe.Sizeof(d))
 		id, _, _ := attach.Call(uintptr(unsafe.Pointer(&d)))
 		if uint32(id) == 0 {
@@ -94,7 +94,7 @@ func TestVirtualGamepad(t *testing.T) {
 		run(func(s *sdl) {
 			attach, _ := s.dll.FindProc("SDL_AttachVirtualJoystick")
 			open, _ := s.dll.FindProc("SDL_OpenJoystick")
-			d := sdlVirtualJoystickDesc{Type: 1, NAxes: 6, NButtons: 15, ButtonMask: 1<<15 - 1, AxisMask: 1<<6 - 1, Name: name}
+			d := sdlVirtualJoystickDesc{Type: 1, NAxes: 6, NButtons: 21, ButtonMask: 1<<21 - 1, AxisMask: 1<<6 - 1, Name: name}
 			d.Version = uint32(unsafe.Sizeof(d))
 			id, _, _ := attach.Call(uintptr(unsafe.Pointer(&d)))
 			joy, _, _ = open.Call(id)
@@ -168,6 +168,66 @@ func TestVirtualGamepad(t *testing.T) {
 		t.Errorf("%d repeats, want at least 2", repeats)
 	}
 
+	// Moves the left stick; both axes change at once, as they do in a report.
+	stick := func(x, y int16) {
+		run(func(s *sdl) {
+			set, _ := s.dll.FindProc("SDL_SetJoystickVirtualAxis")
+			set.Call(joy, 0, uintptr(uint16(x)))
+			set.Call(joy, 1, uintptr(uint16(y)))
+		})
+	}
+	drain := func() []string {
+		time.Sleep(60 * time.Millisecond)
+		var got []string
+		for len(actions) > 0 {
+			got = append(got, <-actions)
+		}
+		return got
+	}
+
+	// A resting stick that wobbles doesn't let go of a held D-pad direction.
+	press(11, true) // D-pad up
+	expect(Up)
+	for k := 0; k < 12; k++ {
+		stick(int16(-200+k*40), int16(300+k*50))
+		time.Sleep(repeatDelay / 8)
+	}
+	time.Sleep(3 * repeatEvery)
+	press(11, false)
+	repeats = 0
+	for _, a := range drain() {
+		if a == Up+"+" {
+			repeats++
+		}
+	}
+	if repeats < 2 {
+		t.Errorf("stick wobble stopped the D-pad repeating: %d repeats", repeats)
+	}
+
+	// A stick pushed a little off straight moves one way, not two.
+	stick(0, 0)
+	drain()
+	stick(24000, 17000)
+	if got := drain(); len(got) != 1 || got[0] != Right {
+		t.Errorf("diagonal stick gave %v, want [right]", got)
+	}
+	stick(0, 0)
+	if got := drain(); len(got) != 0 {
+		t.Errorf("releasing the stick gave %v", got)
+	}
+	// Turning it clearly the other way turns.
+	stick(2000, -26000)
+	if got := drain(); len(got) != 1 || got[0] != Up {
+		t.Errorf("stick up gave %v, want [up]", got)
+	}
+	stick(0, 0)
+	drain()
+
+	// The touchpad click opens search, like Create.
+	press(20, true)
+	expect(View)
+	press(20, false)
+
 	// Unplugging it is noticed.
 	run(func(s *sdl) {
 		detach, _ := s.dll.FindProc("SDL_DetachVirtualJoystick")
@@ -197,5 +257,57 @@ func TestVirtualGamepad(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if m.Mode() != Active {
 		t.Error("not active again")
+	}
+}
+
+// A D-pad reported both as a hat and as buttons moves once, not twice.
+func TestVirtualHatNotTwice(t *testing.T) {
+	actions := make(chan string, 64)
+	m := Start(func(a string, repeat bool) {
+		if !repeat {
+			actions <- a
+		}
+	}, func(State) {})
+	defer m.Stop()
+	run := func(fn func(s *sdl)) {
+		done := make(chan struct{})
+		select {
+		case m.cmds <- func(s *sdl) { fn(s); close(done) }:
+			<-done
+		case <-time.After(3 * time.Second):
+			t.Fatal("SDL thread not ready")
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
+	var joy uintptr
+	name := cstr("WaterLauncher Hat Pad")
+	run(func(s *sdl) {
+		attach, _ := s.dll.FindProc("SDL_AttachVirtualJoystick")
+		open, _ := s.dll.FindProc("SDL_OpenJoystick")
+		d := sdlVirtualJoystickDesc{Type: 1, NAxes: 6, NButtons: 11, NHats: 1, ButtonMask: 1<<11 - 1, AxisMask: 1<<6 - 1, Name: name}
+		d.Version = uint32(unsafe.Sizeof(d))
+		id, _, _ := attach.Call(uintptr(unsafe.Pointer(&d)))
+		joy, _, _ = open.Call(id)
+	})
+	if joy == 0 {
+		t.Fatal("virtual joystick not opened")
+	}
+	time.Sleep(200 * time.Millisecond)
+	hat := func(v uint8) {
+		run(func(s *sdl) {
+			set, _ := s.dll.FindProc("SDL_SetJoystickVirtualHat")
+			set.Call(joy, 0, uintptr(v))
+		})
+	}
+	hat(1) // up
+	time.Sleep(100 * time.Millisecond)
+	hat(0)
+	time.Sleep(100 * time.Millisecond)
+	var got []string
+	for len(actions) > 0 {
+		got = append(got, <-actions)
+	}
+	if len(got) != 1 || got[0] != Up {
+		t.Errorf("hat up gave %v, want [up]", got)
 	}
 }

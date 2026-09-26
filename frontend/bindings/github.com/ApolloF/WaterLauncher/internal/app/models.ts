@@ -196,6 +196,42 @@ export interface StoreAccount {
 }
 
 /**
+ * SyncerStatus is how WaterLauncher and Syncer get on, for Settings.
+ */
+export interface SyncerStatus {
+    "installed": boolean;
+    "version"?: string;
+
+    /**
+     * too old for the launcher API
+     */
+    "outdated": boolean;
+
+    /**
+     * Syncer answered
+     */
+    "connected": boolean;
+
+    /**
+     * its launcher API is up (it may not have been asked to start)
+     */
+    "running": boolean;
+    "error"?: string;
+
+    /**
+     * its sync engine runs
+     */
+    "syncing": boolean;
+    "paused": boolean;
+    "pausedUntil"?: number;
+    "backingUp": boolean;
+    "lastBackup"?: number;
+    "games": number;
+    "conflicts": number;
+    "checkedAt": number;
+}
+
+/**
  * UpdateState is what the interface shows about updates.
  */
 export interface UpdateState {

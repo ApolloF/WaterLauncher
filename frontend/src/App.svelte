@@ -3,7 +3,8 @@
   import Toasts from "./components/Toasts.svelte";
   import Desktop from "./desktop/Desktop.svelte";
   import { api } from "./lib/api";
-  import { dispatch, pad, type Intent } from "./lib/input.svelte";
+  import { desktopPad } from "./lib/desknav";
+  import { dispatchFrom, pad, type Intent } from "./lib/input.svelte";
   import { errText, lib } from "./lib/store.svelte";
 
   let failed = $state("");
@@ -36,11 +37,13 @@
   $effect(() => api.launch.onUIMode((m) => (m === "bigpicture" ? enterBigPicture() : exitBigPicture())));
 
   // Controller: in big picture every action goes to the screens; in desktop
-  // mode the PS / Xbox button switches to big picture.
+  // mode it moves focus around the window, and the PS / Xbox button
+  // switches to big picture.
   $effect(() =>
     api.pad.onAction((action, repeat) => {
-      if (mode === "bigpicture") dispatch(action as Intent, repeat);
+      if (mode === "bigpicture") dispatchFrom("pad", action as Intent, repeat);
       else if (action === "home" && !repeat) enterBigPicture();
+      else if (!failed) desktopPad(action as Intent, repeat);
     }),
   );
   $effect(() =>

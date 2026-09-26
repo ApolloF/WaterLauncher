@@ -3,6 +3,7 @@
   import Toggle from "../components/Toggle.svelte";
   import AccountsSettings from "./AccountsSettings.svelte";
   import AddonsSettings from "./AddonsSettings.svelte";
+  import SyncerSettings from "./SyncerSettings.svelte";
   import UpdateStatus from "./UpdateStatus.svelte";
   import { api } from "../lib/api";
   import { lib } from "../lib/store.svelte";
@@ -10,12 +11,13 @@
 
   let { onclose }: { onclose: () => void } = $props();
 
-  type Tab = "general" | "library" | "bigpicture" | "addons" | "about";
+  type Tab = "general" | "library" | "bigpicture" | "saves" | "addons" | "about";
   let tab = $state<Tab>("library");
   const tabs: { id: Tab; label: string }[] = [
     { id: "general", label: "General" },
     { id: "library", label: "Library" },
     { id: "bigpicture", label: "Big picture" },
+    { id: "saves", label: "Saves" },
     { id: "addons", label: "Add-ons" },
     { id: "about", label: "About" },
   ];
@@ -130,7 +132,7 @@
               </ul>
             {/if}
             <Toggle checked={s.detectUnofficial} title="Recognise unofficial copies" detail="Steam emulators, cracks and repacks, matched to the right game by their Steam AppID." onchange={(v) => set({ detectUnofficial: v })} />
-            <Toggle checked={s.reviewUncertain} title="Let me check uncertain matches" detail="Games matched only by folder name wait in Found on this PC." onchange={(v) => set({ reviewUncertain: v })} />
+            <Toggle checked={s.reviewUncertain} title="Let me check uncertain matches" detail="Games matched only by folder name wait in New on this PC." onchange={(v) => set({ reviewUncertain: v })} />
             <Toggle checked={s.showNotInstalled} title="Show games you uninstalled" detail="They stay listed with their playtime." onchange={(v) => set({ showNotInstalled: v })} />
           </div>
           <AccountsSettings />
@@ -208,11 +210,11 @@
           <div class="group">
             <span class="glabel">While playing</span>
             <Toggle checked={s.closeWhilePlaying} title="Close the interface while a game runs" detail="Frees the memory it uses (about 400 MB). It comes back when the game exits; the tray icon opens it sooner." onchange={(v) => set({ closeWhilePlaying: v })} />
-            <Toggle checked={s.syncSavesBefore} title="Sync saves before playing" detail="With Syncer installed: the game's saves are brought up to date from your other PCs first, and you're warned about two versions of a save." onchange={(v) => set({ syncSavesBefore: v })} />
-            <Toggle checked={s.backupSavesAfter} title="Back up saves after playing" detail="With Syncer installed: a backup runs as soon as the game exits." onchange={(v) => set({ backupSavesAfter: v })} />
             <Toggle checked={s.noticeExternal} title="Notice games started elsewhere" detail="A game from your library started from Steam or a desktop shortcut counts its playtime here too, and WaterLauncher lets go of the controller while it runs." onchange={(v) => set({ noticeExternal: v })} />
             <Toggle checked={s.padWhilePlaying === "listen"} title="Listen for the PS / Xbox button in games" detail="Opens the overlay. WaterLauncher only listens: it never writes to the controller or changes its mode while a game has it. Turn off to let go of the controller completely." onchange={(v) => set({ padWhilePlaying: v ? "listen" : "off" })} />
           </div>
+        {:else if tab === "saves"}
+          <SyncerSettings />
         {:else if tab === "addons"}
           <AddonsSettings />
         {:else}

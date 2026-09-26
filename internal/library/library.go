@@ -84,6 +84,7 @@ type Meta struct {
 	Cover        string   `json:"cover,omitempty"` // local art URLs (/art/…)
 	Hero         string   `json:"hero,omitempty"`
 	Backdrop     string   `json:"backdrop,omitempty"` // 16:9 full-screen background
+	Tile         string   `json:"tile,omitempty"`     // square: key art with the logo
 	Logo         string   `json:"logo,omitempty"`
 	Icon         string   `json:"icon,omitempty"`
 	Accent       string   `json:"accent,omitempty"` // CSS colour from the art

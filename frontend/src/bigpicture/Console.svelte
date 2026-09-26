@@ -12,8 +12,10 @@
   import { isFresh, lib } from "../lib/store.svelte";
   import { title, type Game, type Saves } from "../lib/types";
   import Hints from "./Hints.svelte";
+  import Sections, { type Section } from "./Sections.svelte";
 
   type Props = {
+    width: number;
     height: number;
     onplay: (g: Game) => void;
     oninfo: (g: Game) => void;
@@ -24,6 +26,9 @@
     onfound: () => void;
     onmenu: () => void;
     ondesktop: () => void;
+    onsection: (s: Section) => void;
+    foundCount: number;
+    checkCount: number;
   };
   let p: Props = $props();
 
@@ -73,7 +78,7 @@
   }
   function switchGame(d: -1 | 1) {
     const j = i + d;
-    if (j < 0 || j >= games.length) return;
+    if (j < 0 || j >= games.length) return feedback.edge();
     i = j;
     open = null;
     feedback.move();
@@ -109,6 +114,7 @@
       else if (open === "pad" && choosable && (intent === "left" || intent === "right")) {
         const k = Math.max(0, Math.min(modes.length - 1, pick + (intent === "left" ? -1 : 1)));
         if (k !== pick) ((pick = k), feedback.move());
+        else feedback.edge();
       } else if (intent === "menu" || intent === "home" || intent === "view") return false;
       return;
     }
@@ -119,10 +125,12 @@
       case "right": {
         const k = at + (intent === "left" ? -1 : 1);
         if (k >= 0 && k < row.length) ((focus = row[k]), feedback.move());
+        else feedback.edge();
         return;
       }
       case "down":
         if (row === rowA) ((focus = lastCard), feedback.move());
+        else feedback.edge();
         return;
       case "up":
         if (row === rowB) {
@@ -146,19 +154,22 @@
       switch (intent) {
         case "left":
           if (i > 0) ((i -= 1), feedback.move());
+          else feedback.edge();
           return;
         case "right":
           if (i < n - 1) ((i += 1), feedback.move());
+          else feedback.edge();
           return;
-        case "lb":
-        case "rb":
-          return switchGame(intent === "lb" ? -1 : 1);
+        case "up":
+          feedback.edge();
+          return;
         case "down":
         case "info":
           if (g) showDetails(true);
           return;
         case "confirm":
-          if (g) p.onplay(g);
+          if (g?.needsReview) p.oninfo(g);
+          else if (g) p.onplay(g);
           else (feedback.confirm(), p.onlibrary());
           return;
       }
@@ -213,9 +224,8 @@
 
   <div class="top">
     <Logo size={32} />
-    <span class="tab on">Home</span>
-    <button type="button" class="tab" onclick={p.onlibrary}>Library</button>
-    <button type="button" class="tab" onclick={p.onsearch}>Search</button>
+    <span class="gap"></span>
+    <Sections current="home" onpick={p.onsection} />
     <div class="grow"></div>
     {#if pad.connected}<span class="status"><Icon name="pad" size={26} stroke={1.8} />{pad.battery >= 0 ? `${pad.battery}%` : ""}</span>{/if}
     <span class="clock">{clock.v}</span>
@@ -354,9 +364,8 @@
             { button: "back", label: open ? "Close" : "Back" },
           ]
         : [
-            { button: "confirm", label: g ? "Play" : "Open" },
+            { button: "confirm", label: g ? (g.needsReview ? "Check" : "Play") : "Open" },
             { button: "info", label: "Details" },
-            { button: "view", label: "Search" },
             { button: "menu", label: "Quick access" },
           ]}
     />
@@ -422,23 +431,8 @@
     gap: 10px;
     z-index: 5;
   }
-  .tab {
-    height: 48px;
-    padding: 0 24px;
-    border: 0;
-    border-radius: 24px;
-    background: transparent;
-    color: rgba(243, 245, 247, 0.72);
-    font-size: 20px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-  }
-  .tab.on {
-    background: rgba(243, 245, 247, 0.16);
-    color: #f3f5f7;
-    font-weight: 700;
-    margin-left: 26px;
+  .gap {
+    width: 18px;
   }
   .grow {
     flex: 1;

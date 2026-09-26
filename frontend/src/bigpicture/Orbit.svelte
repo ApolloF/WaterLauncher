@@ -3,6 +3,7 @@
   // around the selected one. Only bubbles near the focus are rendered.
   import { fade } from "svelte/transition";
   import GameArt from "../components/GameArt.svelte";
+  import GameTile from "../components/GameTile.svelte";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
   import { metaLine, padSummary, recentFirst } from "../lib/bp";
@@ -13,8 +14,10 @@
   import Glyph from "./Glyph.svelte";
   import Hints from "./Hints.svelte";
   import { flat, hexDist, nextCell, place, spiral, type Dir } from "./orbit";
+  import Sections, { type Section } from "./Sections.svelte";
 
   type Props = {
+    width: number;
     height: number;
     onplay: (g: Game) => void;
     oninfo: (g: Game) => void;
@@ -25,6 +28,9 @@
     onfound: () => void;
     onmenu: () => void;
     ondesktop: () => void;
+    onsection: (s: Section) => void;
+    foundCount: number;
+    checkCount: number;
   };
   let p: Props = $props();
 
@@ -41,18 +47,21 @@
   });
 
   const H = $derived(p.height);
-  const CX = 960;
+  const CX = $derived(p.width / 2);
   const CY = $derived(H / 2 - 40);
-  const D = 176; // a bubble at zoom 1; the element's size, scaled from there
+  const B = 176; // a bubble at zoom 1
+  // The element is as big as a bubble ever gets (opened) and only ever
+  // scaled down, so it's drawn sharp at every size and resolution.
+  const D = 560;
   // The honeycomb keeps clear of the top bar and the name capsule below.
-  const lens = $derived({ ax: 880, ay: H / 2 - 150, flat: 0.5 });
+  const lens = $derived({ ax: Math.min(880, p.width / 2 - 80), ay: H / 2 - 150, flat: 0.5 });
 
   const bubbles = $derived.by(() => {
     const fc = cells[i];
     if (!fc) return [];
-    const size = D * zoom;
+    const size = B * zoom;
     const spacing = 198 * zoom;
-    const focusSize = D * 1.25 * Math.max(zoom, 0.8);
+    const focusSize = B * 1.25 * Math.max(zoom, 0.8);
     const f0 = flat(fc);
     const out = [];
     for (let k = 0; k < games.length; k++) {
@@ -65,8 +74,9 @@
       let { x: X, y: Y, opacity: op } = at;
       let sc = (at.scale * size) / D;
       if (open) {
-        if (f) ((X = -430), (Y = -20), (sc = 3));
-        else ((sc *= 0.55), (op *= 0.1));
+        // The chosen game opens up on the left; the rest fly out of view.
+        if (f) ((X = -430), (Y = -20), (sc = 1));
+        else ((X *= 1.9), (Y *= 1.9), (sc *= 1.3), (op = 0));
       }
       out.push({ g: games[k], k, f, tf: `translate(-50%,-50%) translate(${X.toFixed(1)}px,${Y.toFixed(1)}px) scale(${sc.toFixed(3)})`, op, z: f ? 200 : Math.round(sc * 100), sc });
     }
@@ -81,7 +91,7 @@
   }
   function move(dir: Dir) {
     const k = nextCell(cells, i, dir, anchorX);
-    if (k === null) return;
+    if (k === null) return feedback.edge();
     i = k;
     if (dir === "left" || dir === "right") anchorX = flat(cells[k]).x;
     feedback.move();
@@ -111,21 +121,20 @@
           if (repeat) fastTimer = setTimeout(() => (fast = false), 260);
           return move(intent);
         case "confirm":
-          if (g) ((open = true), feedback.confirm());
+          if (g?.needsReview) p.oninfo(g);
+          else if (g) ((open = true), feedback.confirm());
           return;
         case "info":
           if (g) p.oninfo(g);
           return;
         case "lt":
-        case "lb":
-          zoom = 0.62;
+        case "rt": {
+          const z = intent === "lt" ? 0.62 : 1;
+          if (z === zoom) return feedback.edge();
+          zoom = z;
           feedback.move();
           return;
-        case "rt":
-        case "rb":
-          zoom = 1;
-          feedback.move();
-          return;
+        }
       }
       return false;
     }),
@@ -148,6 +157,19 @@
     g?.id;
     logoFailed = false;
   });
+  // The selected game's backdrop fills the screen behind the honeycomb;
+  // the last two stay mounted to crossfade.
+  let backs = $state<Game[]>([]);
+  let backTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const cur = g;
+    clearTimeout(backTimer);
+    if (!cur || backs[backs.length - 1]?.id === cur.id) return;
+    // Not while flying past games with the stick held: only where it stops.
+    backTimer = setTimeout(() => (backs = [...backs.filter((b) => b.id !== cur.id).slice(-1), cur]), fast ? 320 : 120);
+    return () => clearTimeout(backTimer);
+  });
+
   const clock = $state({ v: "" });
   $effect(() => {
     const tick = () => {
@@ -160,10 +182,16 @@
   });
 </script>
 
-<div class="orbit" class:fast>
+<div class="orbit" class:fast class:opened={open}>
+  <div class="backdrops">
+    {#each backs as b (b.id)}
+      <div class="backdrop" class:show={b.id === g?.id}><GameArt game={b} kind="backdrop" /></div>
+    {/each}
+  </div>
+  <div class="veil"></div>
   <div class="glow" style:left="{open ? CX - 430 : CX}px" style:top="{open ? CY - 20 : CY}px"></div>
 
-  <div class="top-left"><Logo size={30} /><span>Library</span><span class="muted">{games.length} games</span></div>
+  <div class="top-left"><Logo size={30} /><Sections current="home" onpick={p.onsection} /></div>
   <div class="top-right">
     {#if pad.connected}<span class="status"><Icon name="pad" size={26} stroke={1.8} />{pad.battery >= 0 ? `${pad.battery}%` : ""}</span>{/if}
     <span class="clock">{clock.v}</span>
@@ -180,12 +208,15 @@
       style:transform={b.tf}
       style:opacity={b.op}
       style:z-index={b.z}
-      style:box-shadow={b.f ? `0 0 0 ${(open ? 0 : 4 / b.sc).toFixed(2)}px #fff, 0 0 ${(70 / b.sc).toFixed(1)}px color-mix(in oklab, var(--accent-game) 55%, transparent)` : "none"}
+      style:box-shadow={b.f
+        ? `0 0 0 ${(open ? 0 : 4 / b.sc).toFixed(2)}px #fff, 0 0 ${(70 / b.sc).toFixed(1)}px color-mix(in oklab, var(--accent-game) 55%, transparent)`
+        : `0 ${(8 / b.sc).toFixed(1)}px ${(24 / b.sc).toFixed(1)}px rgba(0, 0, 0, 0.45)`}
       onclick={() => (b.f ? (open ? p.onplay(b.g) : (open = true)) : (select(b.k), (open = false)))}
       aria-label={title(b.g)}
-      transition:fade={{ duration: 260 }}
+      tabindex="-1"
+      in:fade={{ duration: 260 }}
     >
-      <GameArt game={b.g} kind="cover" />
+      <GameTile game={b.g} big={b.f && open} />
     </button>
   {/each}
 
@@ -245,9 +276,8 @@
             { button: "back", label: "Back" },
           ]
         : [
-            { button: "confirm", label: "Open" },
-            { button: "lt", label: "Zoom" },
-            { button: "view", label: "Search" },
+            { button: "confirm", label: g?.needsReview ? "Check" : "Open" },
+            { button: "lt", also: "rt", label: "Zoom" },
             { button: "menu", label: "Quick access" },
           ]}
     />
@@ -265,6 +295,36 @@
     background: #000;
     color: #fff;
   }
+  .backdrops,
+  .backdrop {
+    position: absolute;
+    inset: 0;
+  }
+  .backdrop {
+    opacity: 0;
+    transition: opacity 0.8s ease;
+  }
+  .backdrop.show {
+    opacity: 0.5;
+  }
+  .opened .backdrop.show {
+    opacity: 0.75;
+  }
+  /* Darker in the middle, where the honeycomb is, and at the edges; when
+     a game is open, dark on the right, behind its details. */
+  .veil {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 70% at 50% 46%, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.2) 70%),
+      linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0) 22%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.8) 100%);
+    transition: background 0.6s;
+  }
+  .opened .veil {
+    background:
+      linear-gradient(90deg, rgba(0, 0, 0, 0.15) 0%, rgba(0, 0, 0, 0.35) 40%, rgba(0, 0, 0, 0.88) 62%, rgba(0, 0, 0, 0.92) 100%),
+      linear-gradient(180deg, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0) 25%, rgba(0, 0, 0, 0) 75%, rgba(0, 0, 0, 0.7) 100%);
+  }
   .glow {
     position: absolute;
     width: 1200px;
@@ -274,7 +334,7 @@
     border-radius: 50%;
     background-color: var(--accent-game);
     filter: blur(220px);
-    opacity: 0.3;
+    opacity: 0.2;
     transition:
       left 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
       top 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -324,12 +384,12 @@
     border: 0;
     border-radius: 50%;
     overflow: hidden;
-    background: #111;
+    background: transparent;
+    transform-origin: 50% 50%;
     transition:
       transform 0.46s cubic-bezier(0.22, 1, 0.36, 1),
       opacity 0.4s ease,
       box-shadow 0.35s ease;
-    will-change: transform;
   }
   .fast .bubble {
     transition-duration: 0.2s, 0.2s, 0.2s;
@@ -383,9 +443,10 @@
     font-size: 21px;
     font-weight: 800;
   }
-  .gl :global(.glyph) {
+  .gl > :global(*) {
     background: #000;
     border-color: #000;
+    color: #fff;
   }
   .zoom {
     position: absolute;

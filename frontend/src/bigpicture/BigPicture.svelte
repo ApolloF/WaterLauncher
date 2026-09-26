@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { accentOf } from "../lib/bp";
-  import { dispatch, feedback, keyIntent, setBase, setLight, toHex } from "../lib/input.svelte";
+  import { accentOf, newFinds } from "../lib/bp";
+  import { dispatchFrom, feedback, input, keyIntent, setBase, setLight, toHex } from "../lib/input.svelte";
   import { lib } from "../lib/store.svelte";
   import type { Game } from "../lib/types";
   import BPSettings from "./BPSettings.svelte";
@@ -12,11 +12,12 @@
   import Orbit from "./Orbit.svelte";
   import QuickAccess from "./QuickAccess.svelte";
   import SearchScreen from "./SearchScreen.svelte";
+  import { SECTIONS, type Section } from "./Sections.svelte";
   import Stage from "./Stage.svelte";
 
   let { onexit }: { onexit: () => void } = $props();
 
-  type Screen = "home" | "library" | "search" | "settings" | "found";
+  type Screen = Section | "settings" | "found";
   let screen = $state<Screen>("home");
   let qa = $state(false);
   let sheetId = $state<number | null>(null);
@@ -39,13 +40,15 @@
     initial = false;
     if (session.phase === "ended" && session.startedAt && Date.now() / 1000 - session.startedAt - session.seconds > 60) hiddenSession = session.id;
   });
-  const found = $derived(lib.base.filter((g) => g.installed && (g.needsReview || (!g.initial && !g.lastPlayed && Date.now() / 1000 - g.addedAt < 7 * 86400))));
+  // New on this PC: found in the last week, or matched by folder name only.
+  const found = $derived(newFinds(lib.base, 500));
   const accent = $derived(accentOf(focused) ?? "oklch(0.8 0.12 205)");
   const lightHex = $derived(toHex(accent));
 
   $effect(() => setLight(accent));
 
   const go = (s: Screen) => {
+    if (s === screen && !qa) return;
     screen = s;
     qa = false;
     feedback.move();
@@ -58,6 +61,7 @@
       return;
     }
     sheetId = null;
+    feedback.launch();
     lib.play(g);
   };
   const info = (g: Game) => {
@@ -66,6 +70,17 @@
   };
   const onfocus = (g: Game | null) => (focused = g);
 
+  // L1 / R1 step through the sections from anywhere; settings and New on
+  // this PC sit next to Home.
+  const section = $derived<Section | null>(screen === "home" || screen === "library" || screen === "search" ? screen : null);
+  function stepSection(d: -1 | 1) {
+    const at = SECTIONS.findIndex((s) => s.id === (section ?? "home"));
+    const next = SECTIONS[at + d];
+    if (next) go(next.id);
+    else if (section === null) go("home");
+    else feedback.edge();
+  }
+
   // Under every screen: the buttons that work everywhere.
   $effect(() => {
     setBase((i) => {
@@ -73,7 +88,13 @@
         qa = !qa;
         feedback.move();
       } else if (i === "view") go("search");
+      else if (i === "lb" || i === "rb") stepSection(i === "lb" ? -1 : 1);
       else if (i === "back" && screen !== "home") go("home");
+      else if (i === "back" && input.source === "keyboard") {
+        // Esc at home: Quick access has the way back to desktop mode.
+        qa = true;
+        feedback.move();
+      }
     });
     return () => setBase(null);
   });
@@ -91,7 +112,7 @@
     const i = keyIntent(e);
     if (!i) return;
     e.preventDefault();
-    dispatch(i, e.repeat);
+    dispatchFrom("keyboard", i, e.repeat);
   }
 
   const layoutProps = $derived({
@@ -104,28 +125,31 @@
     onfound: () => go("found"),
     onmenu: () => (qa = true),
     ondesktop: onexit,
+    onsection: (s: Section) => go(s),
+    foundCount: found.length,
+    checkCount: found.filter((g) => g.needsReview).length,
   });
 </script>
 
 <svelte:window {onkeydown} />
 
 <Stage>
-  {#snippet children({ height })}
+  {#snippet children({ width, height })}
     <div class="bp" style:--accent-game={accent}>
       {#if screen === "home"}
         {#if layout === "console"}
-          <Console {height} {...layoutProps} />
+          <Console {width} {height} {...layoutProps} />
         {:else if layout === "orbit"}
-          <Orbit {height} {...layoutProps} />
+          <Orbit {width} {height} {...layoutProps} />
         {:else}
-          <Deck {height} {...layoutProps} />
+          <Deck {width} {height} {...layoutProps} />
         {/if}
       {:else if screen === "library"}
-        <LibraryScreen {height} onplay={play} oninfo={info} {onfocus} onback={() => go("home")} />
+        <LibraryScreen {width} {height} onplay={play} oninfo={info} {onfocus} onback={() => go("home")} onsection={(s) => go(s)} />
       {:else if screen === "found"}
-        <LibraryScreen {height} games={found} heading="Found on this PC" onplay={play} oninfo={info} {onfocus} onback={() => go("home")} />
+        <LibraryScreen {width} {height} games={found} review onplay={play} oninfo={info} {onfocus} onback={() => go("home")} onsection={(s) => go(s)} />
       {:else if screen === "search"}
-        <SearchScreen onplay={play} oninfo={info} {onfocus} onback={() => go("home")} />
+        <SearchScreen {width} onplay={play} oninfo={info} {onfocus} onback={() => go("home")} onsection={(s) => go(s)} />
       {:else}
         <BPSettings onback={() => go("home")} />
       {/if}

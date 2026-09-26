@@ -56,6 +56,17 @@ const mockParams = new URLSearchParams(typeof location !== "undefined" ? locatio
   }
 }
 
+// ?art=steam gives the made-up games real art from Steam's CDN (straight
+// from the browser), to judge the layouts with real pictures.
+if (mockParams.get("art") === "steam") {
+  const ids = [1245620, 413150, 1086940, 620, 1145360, 504230, 1091500, 2358720, 1623730, 292030, 1174180, 271590, 374320, 814380, 105600, 367520, 400, 220, 2050650, 883710, 782330, 379720, 1817070, 1593500, 2215430, 1151640, 990080, 252490, 1966720, 534380, 1716740, 1551360, 2379780, 1794680, 646570, 250900, 1057090, 976730, 1196590, 239140];
+  const cdn = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/";
+  games.forEach((g, k) => {
+    const id = ids[k % ids.length];
+    g.meta = { ...g.meta, cover: `${cdn}${id}/library_600x900_2x.jpg`, hero: `${cdn}${id}/library_hero.jpg`, backdrop: `${cdn}${id}/library_hero_2x.jpg`, logo: `${cdn}${id}/logo.png` };
+  });
+}
+
 let settings: Settings = {
   folders: ["D:\\Games"],
   autoFolders: true,
@@ -78,6 +89,8 @@ let settings: Settings = {
   ownedGOG: false,
   syncSavesBefore: true,
   backupSavesAfter: true,
+  syncWait: 60,
+  startSyncer: true,
   autoUpdate: true,
 };
 
@@ -178,6 +191,7 @@ function addonFor(g: Game | undefined): AddonGame[] {
   }];
 }
 const progressListeners = new Set<(a: string, t: string) => void>();
+const padListeners = new Set<(a: string, repeat: boolean) => void>();
 
 // ---- a pretend game session ----
 
@@ -358,6 +372,16 @@ export const mockApi: Api = {
     },
     async openSyncer() {},
     async getSyncer() {},
+    async syncer(start) {
+      await wait(start ? 900 : 200);
+      // ?syncer=missing|old|off shows the other states.
+      const mode = mockParams.get("syncer");
+      const at = Math.floor(Date.now() / 1000);
+      if (mode === "missing") return { installed: false, outdated: false, connected: false, running: false, syncing: false, paused: false, backingUp: false, games: 0, conflicts: 0, checkedAt: at };
+      if (mode === "old") return { installed: true, version: "0.9.2", outdated: true, connected: false, running: false, error: "Syncer needs an update (version 0.11.0 or newer)", syncing: false, paused: false, backingUp: false, games: 0, conflicts: 0, checkedAt: at };
+      if (mode === "off" && !start) return { installed: true, version: "0.12.0", outdated: false, connected: false, running: false, syncing: false, paused: false, backingUp: false, games: 0, conflicts: 0, checkedAt: at };
+      return { installed: true, version: "0.12.0", outdated: false, connected: true, running: true, syncing: true, paused: false, backingUp: false, lastBackup: at - 2 * hour, games: 42, conflicts: 1, checkedAt: at };
+    },
   },
   accounts: {
     async get() {
@@ -471,8 +495,11 @@ export const mockApi: Api = {
     },
     rumble() {},
     setLight() {},
-    onAction() {
-      return () => {};
+    onAction(cb) {
+      // window.mockPad("down") presses a controller button, for trying things out.
+      padListeners.add(cb);
+      (window as unknown as { mockPad: (a: string, repeat?: boolean) => void }).mockPad = (a, repeat = false) => padListeners.forEach((f) => f(a, repeat));
+      return () => padListeners.delete(cb);
     },
     onState() {
       return () => {};
