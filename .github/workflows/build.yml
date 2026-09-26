@@ -82,6 +82,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          name: WaterLauncher ${{ github.ref_name }}
           prerelease: true
           body_path: ${{ env.WL_NOTES }}
           generate_release_notes: true
