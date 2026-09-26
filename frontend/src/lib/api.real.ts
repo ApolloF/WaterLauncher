@@ -1,7 +1,7 @@
 import { Events, Window } from "@wailsio/runtime";
-import { LaunchService, LibraryService, PadService, SavesService, SettingsService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
+import { AddonsService, LaunchService, LibraryService, PadService, SavesService, SettingsService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
 import type { Api } from "./api";
-import type { AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, StoreHit } from "./types";
+import type { AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, StoreHit } from "./types";
 
 // The generated bindings return the Go structs; their JSON matches ./types.
 const g = (p: Promise<unknown>) => p as Promise<Game>;
@@ -40,6 +40,22 @@ export const realApi: Api = {
     get: (id, fresh = false) => SavesService.Saves(id, fresh) as Promise<unknown> as Promise<Saves>,
     openSyncer: () => SavesService.OpenSyncer(),
     getSyncer: () => SavesService.GetSyncer(),
+  },
+
+  addons: {
+    list: () => AddonsService.List() as Promise<unknown> as Promise<AddonView[]>,
+    enable: (id, sha) => AddonsService.Enable(id, sha) as Promise<unknown> as Promise<AddonView>,
+    disable: (id) => AddonsService.Disable(id) as Promise<unknown> as Promise<AddonView>,
+    add: () => AddonsService.Add().then((v) => ((v as unknown as AddonView)?.id ? (v as unknown as AddonView) : null)),
+    remove: (id) => AddonsService.Remove(id),
+    openFolder: () => AddonsService.OpenFolder(),
+    forGame: (id) => AddonsService.ForGame(id).then((r) => (r ?? []) as unknown as AddonGame[]),
+    runAction: (id, addon, action) => AddonsService.RunAction(id, addon, action),
+    onProgress: (cb) =>
+      Events.On("addon:progress", (e) => {
+        const d = e.data as unknown as { addon: string; text: string };
+        cb(d.addon, d.text);
+      }),
   },
 
   launch: {

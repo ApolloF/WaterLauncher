@@ -51,6 +51,7 @@ type Core struct {
 	Settings *settings.Store
 	Manifest *identify.Manager
 	Launch   *launch.Manager
+	addons   *addonState
 
 	shell       *Shell
 	pad         atomic.Pointer[pad.Manager]
@@ -82,6 +83,7 @@ func NewCore(version string) (*Core, error) {
 	}
 	c.meta = newMetaWorker(c)
 	c.Launch = launch.NewManager(c.onSession)
+	c.addons = newAddonState(version)
 	return c, nil
 }
 
@@ -160,6 +162,10 @@ func (c *Core) scanNow() {
 		return
 	}
 	ix := c.Manifest.Index()
+	known := map[int64]bool{}
+	for _, g := range c.Lib.Games() {
+		known[g.ID] = true
+	}
 	found := make([]library.Found, 0, len(res.Games))
 	for _, g := range res.Games {
 		found = append(found, toFound(g, ix.Identify(g), cfg))
@@ -173,6 +179,15 @@ func (c *Core) scanNow() {
 	c.emit(EventLibraryChanged, "scan")
 	c.rewatch(cfg)
 	c.meta.queueMissing()
+	if added > 0 && len(known) > 0 {
+		var fresh []library.Game
+		for _, g := range c.Lib.Games() {
+			if !known[g.ID] {
+				fresh = append(fresh, g)
+			}
+		}
+		go c.tellAddonsAdded(fresh)
+	}
 	if added > 0 || removed > 0 || !c.registered {
 		c.registered = true
 		go c.registerWithSyncer()
