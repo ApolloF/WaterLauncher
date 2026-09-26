@@ -189,6 +189,10 @@ func (u *updater) check(ctx context.Context) {
 	if u.kind == update.KindExe {
 		name = update.ExeAsset
 	}
+	// An older download (and its pending.json) makes way for this one.
+	u.mu.Lock()
+	u.pending = nil
+	u.mu.Unlock()
 	update.Clear(u.dir, "")
 	file, sum, err := u.feed.Download(ctx, rel, name, u.dir, func(done, total int64) {
 		if total > 0 {
