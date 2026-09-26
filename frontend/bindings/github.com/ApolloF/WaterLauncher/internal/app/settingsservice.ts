@@ -36,6 +36,16 @@ export function AutoFolders(): $CancellablePromise<string[] | null> {
 }
 
 /**
+ * CopyDiagnostics puts a report for a bug report on the clipboard: versions,
+ * settings, what the library holds, controller, Syncer, add-ons, updates,
+ * the last crash and the end of the log. It holds no keys or tokens, and
+ * the user folder is shortened to %USERPROFILE%.
+ */
+export function CopyDiagnostics(): $CancellablePromise<void> {
+    return $Call.ByID(2190312692);
+}
+
+/**
  * Get returns the settings.
  */
 export function Get(): $CancellablePromise<settings$0.Settings> {
@@ -68,6 +78,21 @@ export function OpenLog(): $CancellablePromise<void> {
  */
 export function RemoveFolder(path: string): $CancellablePromise<settings$0.Settings> {
     return $Call.ByID(1110927849, path);
+}
+
+/**
+ * ReportProblem opens a new GitHub issue for WaterLauncher.
+ */
+export function ReportProblem(): $CancellablePromise<void> {
+    return $Call.ByID(124522558);
+}
+
+/**
+ * ReportUIError logs an error the interface ran into (an exception or a
+ * rejected promise), so it shows up in the log and in diagnostics.
+ */
+export function ReportUIError(message: string): $CancellablePromise<void> {
+    return $Call.ByID(2064165481, message);
 }
 
 /**

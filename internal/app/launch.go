@@ -155,7 +155,7 @@ func (c *Core) plan(g library.Game) launch.Plan {
 			known = true // not checked: let the backup step ask Syncer itself
 		}
 		if cfg.BackupSavesAfter {
-			after = append(after, c.savesAfterStep(g, &known))
+			after = append(after, c.savesAfterStep(g, &known, true))
 		}
 	}
 	ab, aa := c.addonSteps(g)
@@ -318,6 +318,9 @@ type Args struct {
 	Tray    bool  // --tray: start in the tray (at sign-in)
 	Quit    bool  // --quit: close the running WaterLauncher (installer)
 	Updated bool  // --updated: started by an update
+	// --diagnostics: write a diagnostics report to the desktop and exit,
+	// for when the interface won't open.
+	Diagnostics bool
 }
 
 // ParseArgs reads the command line; unknown arguments are ignored.
@@ -332,6 +335,8 @@ func ParseArgs(args []string) Args {
 			a.Quit = true
 		case "--updated":
 			a.Updated = true
+		case "--diagnostics":
+			a.Diagnostics = true
 		}
 	}
 	return a

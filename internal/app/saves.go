@@ -250,8 +250,10 @@ func (c *Core) savesBeforeStep(g library.Game, known *bool) launch.Step {
 		}}
 }
 
-// savesAfterStep backs the game's saves up once it has exited.
-func (c *Core) savesAfterStep(g library.Game, known *bool) launch.Step {
+// savesAfterStep backs the game's saves up once it has exited. With wait
+// false it only starts the backup (Syncer finishes it on its own), for a
+// game started elsewhere, where nobody is waiting on a launch sequence.
+func (c *Core) savesAfterStep(g library.Game, known *bool, wait bool) launch.Step {
 	return launch.Step{ID: "savesAfter", Label: "Back up saves", Timeout: 3 * time.Minute,
 		Run: func(ctx context.Context, sc *launch.StepContext) error {
 			dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -277,6 +279,14 @@ func (c *Core) savesAfterStep(g library.Game, known *bool) launch.Step {
 				}
 			}
 			sc.Progress("Backing up…")
+			if !wait {
+				_, err := cl.BackupNow(ctx, false, 0)
+				if err != nil && !strings.Contains(strings.ToLower(err.Error()), "already") {
+					return err
+				}
+				sc.Progress("Backing up in the background")
+				return nil
+			}
 			r, err := cl.BackupNow(ctx, true, 2*time.Minute+30*time.Second)
 			switch {
 			case err != nil && strings.Contains(strings.ToLower(err.Error()), "already"):

@@ -35,6 +35,11 @@
     api.startWithWindows().then((v) => (startup = v));
   });
 
+  async function copyDiagnostics() {
+    const ok = await lib.run(() => api.copyDiagnostics().then(() => true));
+    if (ok) lib.toast("Diagnostics copied. Paste them into your bug report.");
+  }
+
   async function setStartup(on: boolean) {
     const next = await lib.run(() => api.setStartWithWindows(on));
     if (next) startup = next;
@@ -223,7 +228,12 @@
             <dt>Data folder</dt>
             <dd class="path">{lib.info?.dataDir ?? ""}</dd>
           </dl>
-          <div><button type="button" class="btn" onclick={() => lib.run(() => api.openLog())}><Icon name="file" size={16} />Open log folder</button></div>
+          <div class="row">
+            <button type="button" class="btn" onclick={copyDiagnostics}><Icon name="file" size={16} />Copy diagnostics</button>
+            <button type="button" class="btn" onclick={() => lib.run(() => api.reportProblem())}><Icon name="link" size={16} />Report a problem</button>
+            <button type="button" class="btn" onclick={() => lib.run(() => api.openLog())}><Icon name="folder" size={16} />Open log folder</button>
+          </div>
+          <p class="hint">Diagnostics are versions, settings, library counts and the end of the log, for a bug report. They hold no keys, and your user folder is shortened to %USERPROFILE%.</p>
         {/if}
       {/if}
     </section>
@@ -433,6 +443,11 @@
   }
   .btn:hover {
     background: var(--surface-2);
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
   }
   .keyrow {
     display: flex;

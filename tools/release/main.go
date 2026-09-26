@@ -7,6 +7,8 @@
 //	go run ./tools/release pubkey            print the public key
 //	go run ./tools/release publish <tag>     sign the draft release <tag> and publish it
 //	go run ./tools/release verify <tag>      check a published release's signature
+//	go run ./tools/release cut <tag> [--pr N] [--dry-run]
+//	                                         the whole release from main, checked step by step (cut.go)
 //
 // The private key is stored encrypted with Windows DPAPI (this Windows
 // account only) in %APPDATA%\WaterLauncher-release, outside the app's data
@@ -68,6 +70,20 @@ func main() {
 		err = publish(arg(2))
 	case "verify":
 		err = verify(arg(2))
+	case "cut":
+		tag, pr, dry := arg(2), "", false
+		for i := 3; i < len(os.Args); i++ {
+			switch os.Args[i] {
+			case "--dry-run":
+				dry = true
+			case "--pr":
+				pr = arg(i + 1)
+				i++
+			default:
+				usage()
+			}
+		}
+		err = cut(tag, pr, dry)
 	default:
 		usage()
 	}
@@ -78,7 +94,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: release keygen | pubkey | backup <file> | restore <file> | publish <tag> | verify <tag>")
+	fmt.Fprintln(os.Stderr, "usage: release keygen | pubkey | backup <file> | restore <file> | publish <tag> | verify <tag> | cut <tag> [--pr N] [--dry-run]")
 	os.Exit(2)
 }
 

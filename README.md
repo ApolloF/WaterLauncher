@@ -23,7 +23,8 @@ WaterLauncher only manages games that are already installed. It never downloads 
 - **Updates:** checked on GitHub twice a day (*Settings → General*). New versions download in the background and install the next time WaterLauncher starts. Each one must be signed with a release key that never leaves the maintainer's PC ([docs/RELEASING.md](docs/RELEASING.md)).
 - **Start with Windows:** *Settings → General*. WaterLauncher then waits in the tray.
 - **Games started elsewhere:** start a library game from Steam or a shortcut and WaterLauncher still counts its playtime and lets go of the controller (*Settings → Big picture → While playing*).
-- **Command line:** `--play <id>` starts a game without the interface (for shortcuts), `--tray` starts in the tray, `--quit` closes a running WaterLauncher.
+- **Command line:** `--play <id>` starts a game without the interface (for shortcuts), `--tray` starts in the tray, `--quit` closes a running WaterLauncher, `--diagnostics` writes a report to the desktop.
+- **Something wrong?** *Settings → About → Copy diagnostics*, then *Report a problem*. If the interface won't open: `WaterLauncher.exe --diagnostics`.
 - **Your data:** `%APPDATA%\WaterLauncher` (library, settings, encrypted keys, log) and `%LOCALAPPDATA%\WaterLauncher` (art, the game database, add-ons, updates).
 
 Builds aren't code-signed yet, so SmartScreen may warn the first time: *More info → Run anyway*. See [SECURITY.md](SECURITY.md) for how WaterLauncher keeps you safe.

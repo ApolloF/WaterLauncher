@@ -141,6 +141,7 @@ class LibraryStore {
     ]);
     this.update = update;
     this.announceVersion(info.version);
+    if (info.crashedLastTime) this.toast("WaterLauncher closed unexpectedly last time. Settings → About → Copy diagnostics helps with a bug report.", "error");
     this.meta = meta;
     this.session = session;
     this.games = games;

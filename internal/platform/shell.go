@@ -41,6 +41,14 @@ func OpenWebPage(url string) error {
 	return shellExecute("open", url, "", "")
 }
 
+// OpenFile opens a text file WaterLauncher wrote in the user's editor.
+func OpenFile(p string) error {
+	if !filepath.IsAbs(p) || !IsFile(p) || !strings.EqualFold(filepath.Ext(p), ".txt") {
+		return errors.New("refusing to open this file")
+	}
+	return shellExecute("open", p, "", "")
+}
+
 // ShowInExplorer opens Explorer at dir.
 func ShowInExplorer(dir string) error {
 	if !filepath.IsAbs(dir) || !IsDir(dir) {

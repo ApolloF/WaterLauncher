@@ -30,6 +30,12 @@ export interface Api {
   autoFolders(): Promise<string[]>;
   info(): Promise<AppInfo>;
   openLog(): Promise<void>;
+  /** Puts a diagnostics report (no keys, user folder shortened) on the clipboard. */
+  copyDiagnostics(): Promise<void>;
+  /** Opens a new GitHub issue. */
+  reportProblem(): Promise<void>;
+  /** Logs an error the interface ran into. */
+  reportUIError(message: string): void;
   hasSteamGridDBKey(): Promise<boolean>;
   setSteamGridDBKey(key: string): Promise<void>;
   startWithWindows(): Promise<Startup>;

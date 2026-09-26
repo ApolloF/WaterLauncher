@@ -77,6 +77,11 @@ export interface AppInfo {
     "version": string;
     "dataDir": string;
     "logFile": string;
+
+    /**
+     * The previous run crashed (its output is in crash-previous.log).
+     */
+    "crashedLastTime": boolean;
 }
 
 /**

@@ -271,9 +271,16 @@ export const mockApi: Api = {
     return ["C:\\Program Files (x86)\\DODI-Repacks", "D:\\Games"];
   },
   async info(): Promise<AppInfo> {
-    return { version: "mock", dataDir: "C:\\Users\\you\\AppData\\Roaming\\WaterLauncher", logFile: "waterlauncher.log" };
+    return { version: "mock", dataDir: "C:\\Users\\you\\AppData\\Roaming\\WaterLauncher", logFile: "waterlauncher.log", crashedLastTime: false };
   },
   async openLog() {},
+  async copyDiagnostics() {
+    await navigator.clipboard?.writeText("WaterLauncher diagnostics (mock)").catch(() => {});
+  },
+  async reportProblem() {},
+  reportUIError(m) {
+    console.warn("interface error:", m);
+  },
   async hasSteamGridDBKey() {
     return sgdb;
   },
