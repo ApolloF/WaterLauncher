@@ -61,6 +61,7 @@ const (
 	initGamepad = 0x00002000
 
 	evQuit           = 0x100
+	evJoystickHat    = 0x602
 	evGamepadAxis    = 0x650
 	evGamepadDown    = 0x651
 	evGamepadUp      = 0x652
@@ -354,6 +355,11 @@ func (m *Manager) loop() {
 	}
 	held := map[string]*hold{}
 	axes := map[uint8]int16{}
+	// A controller whose mapping has no D-pad buttons still reports its
+	// D-pad as a hat; that's used instead, for controllers that never send
+	// D-pad buttons (the others send both).
+	dpadButtons := map[uint32]bool{}
+	hats := map[uint32]uint8{}
 	battery := time.NewTicker(30 * time.Second)
 	defer battery.Stop()
 	// SDL is polled; how often depends on what could happen. Without a
@@ -460,6 +466,8 @@ func (m *Manager) loop() {
 			}
 			clear(held)
 			clear(axes)
+			clear(dpadButtons)
+			clear(hats)
 			m.pulses = nil
 			off, passive = mode == Off, mode == Passive
 			if !off {
@@ -479,6 +487,7 @@ func (m *Manager) loop() {
 			continue
 		}
 		stickMoved := false
+		var hatNow map[uint32]uint8 // hat positions reported in this batch
 		for {
 			r, _, _ := s.pollEvent.Call(uintptr(unsafe.Pointer(&ev[0])))
 			if !ok(r) {
@@ -494,11 +503,23 @@ func (m *Manager) loop() {
 				m.open(s, which)
 			case evGamepadRemoved:
 				m.close(s, which)
+				delete(dpadButtons, which)
+				delete(hats, which)
 			case evGamepadDown:
 				m.use(s, which)
+				if b := ev[20]; b >= 11 && b <= 14 {
+					dpadButtons[which] = true
+				}
 				press("button"+strconv.Itoa(int(ev[20])), buttons[ev[20]])
 			case evGamepadUp:
 				release("button" + strconv.Itoa(int(ev[20])))
+			case evJoystickHat:
+				if ev[20] == 0 {
+					if hatNow == nil {
+						hatNow = map[uint32]uint8{}
+					}
+					hatNow[which] = ev[21]
+				}
 			case evGamepadAxis:
 				m.use(s, which)
 				axis := ev[20]
@@ -522,6 +543,25 @@ func (m *Manager) loop() {
 		}
 		if stickMoved {
 			stick()
+		}
+		for which, v := range hatNow {
+			if dpadButtons[which] {
+				continue // its D-pad buttons came too
+			}
+			prev := hats[which]
+			hats[which] = v
+			for _, d := range [...]struct {
+				bit uint8
+				dir string
+			}{{1, Up}, {2, Right}, {4, Down}, {8, Left}} {
+				switch on, was := v&d.bit != 0, prev&d.bit != 0; {
+				case on && !was:
+					m.use(s, which)
+					press("hat"+d.dir, d.dir)
+				case !on && was:
+					release("hat" + d.dir)
+				}
+			}
 		}
 		now := time.Now()
 		var repeated [4]bool // the stick and D-pad held the same way repeat once

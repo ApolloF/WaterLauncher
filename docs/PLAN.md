@@ -348,6 +348,7 @@ On `fix/controller-and-polish`, from the maintainer's own list after section 20.
 
 1. **Input**:
    - The left stick points one way at a time (the axis pushed furthest), and it no longer lets go of a held D-pad direction when it wobbles at rest, which stopped the D-pad repeating.
+   - A controller whose mapping has no D-pad buttons gets its D-pad from the hat it reports (only when it never sends D-pad buttons, so nothing moves twice).
    - The DualSense touchpad click opens Search, like Create: the Search prompt showed a rectangle, which on a DualSense is the touchpad.
    - Prompts are drawn for what's in use: PlayStation shapes (Options and Create as the small buttons they are), Xbox letters, or keyboard keys while the keyboard is used or no controller is connected. Every prompt can be clicked.
    - One press arriving twice (Steam's desktop configuration turns the controller into a keyboard while WaterLauncher reads the same controller) is dropped.

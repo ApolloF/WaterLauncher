@@ -259,3 +259,55 @@ func TestVirtualGamepad(t *testing.T) {
 		t.Error("not active again")
 	}
 }
+
+// A D-pad reported both as a hat and as buttons moves once, not twice.
+func TestVirtualHatNotTwice(t *testing.T) {
+	actions := make(chan string, 64)
+	m := Start(func(a string, repeat bool) {
+		if !repeat {
+			actions <- a
+		}
+	}, func(State) {})
+	defer m.Stop()
+	run := func(fn func(s *sdl)) {
+		done := make(chan struct{})
+		select {
+		case m.cmds <- func(s *sdl) { fn(s); close(done) }:
+			<-done
+		case <-time.After(3 * time.Second):
+			t.Fatal("SDL thread not ready")
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
+	var joy uintptr
+	name := cstr("WaterLauncher Hat Pad")
+	run(func(s *sdl) {
+		attach, _ := s.dll.FindProc("SDL_AttachVirtualJoystick")
+		open, _ := s.dll.FindProc("SDL_OpenJoystick")
+		d := sdlVirtualJoystickDesc{Type: 1, NAxes: 6, NButtons: 11, NHats: 1, ButtonMask: 1<<11 - 1, AxisMask: 1<<6 - 1, Name: name}
+		d.Version = uint32(unsafe.Sizeof(d))
+		id, _, _ := attach.Call(uintptr(unsafe.Pointer(&d)))
+		joy, _, _ = open.Call(id)
+	})
+	if joy == 0 {
+		t.Fatal("virtual joystick not opened")
+	}
+	time.Sleep(200 * time.Millisecond)
+	hat := func(v uint8) {
+		run(func(s *sdl) {
+			set, _ := s.dll.FindProc("SDL_SetJoystickVirtualHat")
+			set.Call(joy, 0, uintptr(v))
+		})
+	}
+	hat(1) // up
+	time.Sleep(100 * time.Millisecond)
+	hat(0)
+	time.Sleep(100 * time.Millisecond)
+	var got []string
+	for len(actions) > 0 {
+		got = append(got, <-actions)
+	}
+	if len(got) != 1 || got[0] != Up {
+		t.Errorf("hat up gave %v, want [up]", got)
+	}
+}
