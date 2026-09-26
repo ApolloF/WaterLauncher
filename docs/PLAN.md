@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **v1.0 released** (2026-09-26), after v0.1 to v0.7 as prereleases. Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). Code signing waits for a certificate ([SIGNING.md](SIGNING.md)). Section 17 has the v1.0 details and what comes after.
+Status: **v1.1 released** (2026-09-26); v1.0 before it, v0.1 to v0.7 as prereleases. Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). Code signing waits for a certificate ([SIGNING.md](SIGNING.md)). Section 17 has the v1.0 details and what comes after.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
@@ -320,3 +320,9 @@ Two independent parts.
 2. **Authenticode** (SmartScreen, and the publisher check the updater already has): SignPath Foundation (free for open source) signs from GitHub Actions after they approve the project. Needs the user to apply. Then: sign `WaterLauncher.exe`, build the uninstaller separately so it can be signed too (NSIS can't call a remote signer mid-build), sign the installer.
 
 Decisions for the user: where the release key lives and how it's backed up; whether to apply to SignPath (or pay for Azure Artifact Signing).
+
+## To-do (maintainer)
+
+- [ ] **Back up the release key** before the next release: `go run ./tools/release backup <file>` in a terminal (it asks for a password). Keep the file offline and the password elsewhere. Without it, losing this PC strands v1.1+ users on their version ([RELEASING.md](RELEASING.md)).
+- [ ] **Apply to SignPath Foundation** (signpath.org) for Authenticode signing. Once approved: the project, signing policy and the `binaries` and `installer` artifact configurations in SignPath, then the `SIGNPATH_API_TOKEN` secret and `SIGNPATH_*` variables on GitHub ([SIGNING.md](SIGNING.md)). Until then releases carry the release-key signature but no Authenticode signature, so SmartScreen warns on first run.
+- [ ] Turn on GitHub's private vulnerability reporting (Settings → Security), which [SECURITY.md](../SECURITY.md) points to.
