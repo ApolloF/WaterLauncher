@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **v0.1 to v0.4 released** as prereleases (2026-09-25 and 26). **v0.5** (Syncer) is built (2026-09-26): [gamekit](https://github.com/ApolloF/gamekit) v0.1.0 is published and used by WaterLauncher, and the Syncer side is in [ApolloF/syncer#7](https://github.com/ApolloF/syncer/pull/7). v0.5 is released once Syncer 0.11 is out. v0.6 (add-ons) is next.
+Status: **v0.1 to v0.4 released** as prereleases (2026-09-25 and 26). **v0.5** (Syncer) is built (2026-09-26): [gamekit](https://github.com/ApolloF/gamekit) v0.1.0 is published and used by WaterLauncher, and the Syncer side is in [ApolloF/syncer#7](https://github.com/ApolloF/syncer/pull/7). v0.5 is released once Syncer 0.11 is out. **v0.6** (add-ons) is built too: the protocol is in [addon-protocol.md](addon-protocol.md), and the DLSS Updater side is in [ApolloF/dlssupdater#1](https://github.com/ApolloF/dlssupdater/pull/1). v0.7 (owned games) is next.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
@@ -142,11 +142,14 @@ Follow-ups in Syncer, after its `feature/steam-autocloud-copies` work lands: use
 - **Manifest** `addon.json`: id, name, version, publisher, exe, protocol version, hooks, contributions (badges, actions, a settings schema) and permissions (for example `modifyGameFiles`, `network`).
 - **Hooks:** `library.gameAdded`, `game.beforeLaunch` (progress, skip), `game.afterExit`, `game.status`, `game.actions`, `settings`.
 - **Trust:** you enable each add-on explicitly and see its permissions. WaterLauncher pins its SHA-256 and asks again when it changes, and shows the Authenticode publisher when signed. Add-ons run with normal user rights, with timeouts and crash isolation.
-- **DLSS Updater:** a new `--addon` mode, as a PR in `ApolloF/dlssupdater`. It needs the .NET 8 SDK, which gets installed in that phase.
+- **DLSS Updater:** a new `--addon` mode ([ApolloF/dlssupdater#1](https://github.com/ApolloF/dlssupdater/pull/1)). *Settings → General → Connect to WaterLauncher* writes its `addon.json`. The .NET 8 SDK (8.0.425) is installed per user in `%LOCALAPPDATA%\Microsoft\dotnet`.
   - Before launch: re-apply DLSS if a game patch reverted it.
   - Status: DLSS and OptiScaler versions.
   - Actions: install OptiScaler, restore DLSS, open in DLSS Updater.
-- The full spec goes in `docs/addon-protocol.md`.
+- The spec is [addon-protocol.md](addon-protocol.md).
+- **Where add-ons live:** `%LOCALAPPDATA%\WaterLauncher\addons\<id>\addon.json`. Approvals (enabled, pinned SHA-256) are in `%APPDATA%\WaterLauncher\addons.json`.
+- **Before-launch order:** Syncer's *Sync saves* first, then add-ons, then the Steam Input shortcut.
+- **Authenticode:** only the signed or unsigned state is shown for now, not the publisher's name. `library.gameAdded` goes only to add-ons that are running.
 
 ## 10. Security
 

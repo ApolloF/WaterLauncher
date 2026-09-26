@@ -1,18 +1,20 @@
 <script lang="ts">
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
+  import AddonsSettings from "./AddonsSettings.svelte";
   import { api } from "../lib/api";
   import { lib } from "../lib/store.svelte";
   import type { Settings } from "../lib/types";
 
   let { onclose }: { onclose: () => void } = $props();
 
-  type Tab = "general" | "library" | "bigpicture" | "about";
+  type Tab = "general" | "library" | "bigpicture" | "addons" | "about";
   let tab = $state<Tab>("library");
   const tabs: { id: Tab; label: string }[] = [
     { id: "general", label: "General" },
     { id: "library", label: "Library" },
     { id: "bigpicture", label: "Big picture" },
+    { id: "addons", label: "Add-ons" },
     { id: "about", label: "About" },
   ];
   const layouts: { id: Settings["bigPictureLayout"]; label: string; note: string }[] = [
@@ -172,6 +174,8 @@
             <Toggle checked={s.backupSavesAfter} title="Back up saves after playing" detail="With Syncer installed: a backup runs as soon as the game exits." onchange={(v) => set({ backupSavesAfter: v })} />
             <Toggle checked={s.padWhilePlaying === "listen"} title="Listen for the PS / Xbox button in games" detail="Opens the overlay. WaterLauncher only listens: it never writes to the controller or changes its mode while a game has it. Turn off to let go of the controller completely." onchange={(v) => set({ padWhilePlaying: v ? "listen" : "off" })} />
           </div>
+        {:else if tab === "addons"}
+          <AddonsSettings />
         {:else}
           <dl class="kv">
             <dt>Version</dt>
