@@ -155,7 +155,7 @@ func (c *Core) plan(g library.Game) launch.Plan {
 			known = true // not checked: let the backup step ask Syncer itself
 		}
 		if cfg.BackupSavesAfter {
-			after = append(after, c.savesAfterStep(g, &known))
+			after = append(after, c.savesAfterStep(g, &known, true))
 		}
 	}
 	ab, aa := c.addonSteps(g)

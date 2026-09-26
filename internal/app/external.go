@@ -11,6 +11,7 @@ import (
 	"github.com/ApolloF/WaterLauncher/internal/logx"
 	"github.com/ApolloF/WaterLauncher/internal/pad"
 	"github.com/ApolloF/WaterLauncher/internal/platform"
+	"github.com/ApolloF/WaterLauncher/internal/syncer"
 )
 
 // RouteExternal is a game started outside WaterLauncher (from Steam, a
@@ -128,8 +129,16 @@ func (c *Core) externalPlan(g library.Game, pid uint32) launch.Plan {
 	if g.Exe != "" && !platform.Within(g.Dir, g.Exe) {
 		dirs = append(dirs, filepath.Dir(g.Exe))
 	}
+	// Syncer syncs on its own and backs up every few hours; a backup right
+	// after the game closes adds a restore point for that session. (Syncing
+	// before playing can't apply: the game is already running.)
+	var after []launch.Step
+	if _, ok := syncer.Installed(); ok && c.Settings.Get().BackupSavesAfter {
+		known := false
+		after = append(after, c.savesAfterStep(g, &known, false))
+	}
 	return launch.Plan{
-		GameID: g.ID, Title: title, Dirs: dirs, DetectTimeout: 30 * time.Second,
+		GameID: g.ID, Title: title, Dirs: dirs, DetectTimeout: 30 * time.Second, After: after,
 		Start: func() (uint32, string, error) {
 			_, _ = c.Lib.Update(g.ID, func(x *library.Game) { x.LastPlayed = time.Now().Unix() })
 			c.gamesChanged(g.ID)
