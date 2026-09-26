@@ -189,3 +189,31 @@ export interface StoreAccount {
     "syncing": boolean;
     "error"?: string;
 }
+
+/**
+ * UpdateState is what the interface shows about updates.
+ */
+export interface UpdateState {
+    "current": string;
+    "latest"?: string;
+    "status": string;
+
+    /**
+     * 0 to 1 while downloading
+     */
+    "progress": number;
+    "notes"?: string;
+    "page": string;
+    "error"?: string;
+
+    /**
+     * unix seconds
+     */
+    "checkedAt": number;
+
+    /**
+     * Failed: an install of Latest was started before but this is still
+     * the old version, so it isn't retried on its own.
+     */
+    "failed": boolean;
+}

@@ -307,6 +307,31 @@ func shortcutFor(g library.Game) steaminput.Shortcut {
 	return steaminput.Shortcut{Name: g.DisplayTitle(), Exe: g.Exe, WorkDir: g.WorkDir, Args: g.Args}
 }
 
+// Args are WaterLauncher's command-line options.
+type Args struct {
+	Play    int64 // --play <id>: start this game without the interface
+	Tray    bool  // --tray: start in the tray (at sign-in)
+	Quit    bool  // --quit: close the running WaterLauncher (installer)
+	Updated bool  // --updated: started by an update
+}
+
+// ParseArgs reads the command line; unknown arguments are ignored.
+func ParseArgs(args []string) Args {
+	var a Args
+	a.Play, _ = PlayArg(args)
+	for _, s := range args {
+		switch s {
+		case "--tray":
+			a.Tray = true
+		case "--quit":
+			a.Quit = true
+		case "--updated":
+			a.Updated = true
+		}
+	}
+	return a
+}
+
 // PlayArg finds "--play <id>" in command-line arguments, so a desktop
 // shortcut can start a game through WaterLauncher.
 func PlayArg(args []string) (int64, bool) {

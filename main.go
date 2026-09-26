@@ -6,6 +6,7 @@ import (
 	"embed"
 	"log"
 	"os"
+	"time"
 
 	"github.com/ApolloF/WaterLauncher/internal/app"
 	"github.com/ApolloF/WaterLauncher/internal/logx"
@@ -21,7 +22,32 @@ var assets embed.FS
 // version is set at build time (-ldflags "-X main.version=v0.1.0").
 var version = "dev"
 
+// uniqueID keeps WaterLauncher to one instance per Windows session.
+const uniqueID = "nl.apollof.waterlauncher"
+
 func main() {
+	args := app.ParseArgs(os.Args[1:])
+	if args.Updated {
+		// Started by an update: the old version may still be closing.
+		platform.WaitInstanceGone(uniqueID, 15*time.Second)
+	}
+	if platform.InstanceRunning(uniqueID) {
+		// Hand the arguments to the running WaterLauncher; Wails passes
+		// them on and exits, before the library is even opened.
+		application.New(application.Options{
+			Name:           "WaterLauncher",
+			Assets:         application.AssetOptions{Handler: application.AssetFileServerFS(assets)},
+			SingleInstance: &application.SingleInstanceOptions{UniqueID: uniqueID},
+		})
+		os.Exit(0) // it exited just now: nothing to hand over
+	}
+	if args.Quit {
+		return // nothing runs, nothing to close (the installer asks)
+	}
+	if args.Play == 0 && !args.Updated && app.ApplyPendingUpdate(version, args.Tray) {
+		return // the new version takes over
+	}
+
 	core, err := app.NewCore(version)
 	if err != nil {
 		logx.Printf("start: %v", err)
@@ -42,15 +68,24 @@ func main() {
 			application.NewService(app.NewAccountsService(core)),
 			application.NewService(app.NewSettingsService(core)),
 			application.NewService(app.NewPadService(core)),
+			application.NewService(app.NewUpdateService(core)),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
 			Middleware: meta.ArtHandler(platform.CacheDir("art")),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "nl.apollof.waterlauncher",
+			UniqueID: uniqueID,
 			OnSecondInstanceLaunch: func(d application.SecondInstanceData) {
-				if !launcher.PlayFromArgs(d.Args) {
+				a := app.ParseArgs(d.Args)
+				switch {
+				case a.Quit: // the installer or uninstaller needs WaterLauncher closed
+					logx.Printf("asked to quit")
+					application.Get().Quit()
+				case a.Play != 0:
+					launcher.PlayFromArgs(d.Args)
+				case a.Tray, a.Updated: // already running
+				default:
 					shell.OpenMain()
 				}
 			},
@@ -62,13 +97,17 @@ func main() {
 			DisableQuitOnLastWindowClosed: true,
 		},
 	})
-	// "--play <id>" starts a game straight away, without the interface.
-	if _, ok := app.PlayArg(os.Args[1:]); ok {
+	switch {
+	case args.Play != 0:
+		// "--play <id>" starts a game straight away, without the interface.
 		shell.StartHidden()
 		wa.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 			go launcher.PlayFromArgs(os.Args[1:])
 		})
-	} else {
+	case args.Tray:
+		// "--tray": started with Windows; only the tray icon until opened.
+		shell.StartHidden()
+	default:
 		shell.Start()
 	}
 

@@ -28,6 +28,7 @@ declare module "@wailsio/runtime" {
             "pad:state": pad$0.State;
             "scan:state": app$0.ScanState;
             "ui:mode": string;
+            "update:state": app$0.UpdateState;
         }
     }
 }

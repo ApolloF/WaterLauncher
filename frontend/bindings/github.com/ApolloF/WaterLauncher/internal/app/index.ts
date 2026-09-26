@@ -8,6 +8,7 @@ import * as LibraryService from "./libraryservice.js";
 import * as PadService from "./padservice.js";
 import * as SavesService from "./savesservice.js";
 import * as SettingsService from "./settingsservice.js";
+import * as UpdateService from "./updateservice.js";
 export {
     AccountsService,
     AddonsService,
@@ -15,7 +16,8 @@ export {
     LibraryService,
     PadService,
     SavesService,
-    SettingsService
+    SettingsService,
+    UpdateService
 };
 
 export type {
@@ -32,5 +34,6 @@ export type {
     Permission,
     Saves,
     ScanState,
-    StoreAccount
+    StoreAccount,
+    UpdateState
 } from "./models.js";

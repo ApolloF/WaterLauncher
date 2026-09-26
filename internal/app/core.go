@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -53,6 +54,7 @@ type Core struct {
 	Launch   *launch.Manager
 	addons   *addonState
 	owned    *ownedState
+	updates  *updater
 
 	shell       *Shell
 	pad         atomic.Pointer[pad.Manager]
@@ -86,6 +88,7 @@ func NewCore(version string) (*Core, error) {
 	c.Launch = launch.NewManager(c.onSession)
 	c.addons = newAddonState(version)
 	c.owned = newOwnedState(c)
+	c.updates = newUpdater(c)
 	return c, nil
 }
 
@@ -95,6 +98,10 @@ func (c *Core) Start() {
 	go c.scanLoop()
 	go c.meta.run(c.ctx)
 	go c.owned.loop(c.ctx)
+	go c.updates.loop(c.ctx)
+	if exe, err := os.Executable(); err == nil && platform.RepairStartup(exe) {
+		logx.Printf("start with Windows: now starts %s", exe)
+	}
 	c.RequestScan()
 	go func() {
 		if !c.Manifest.Stale() {
@@ -133,6 +140,13 @@ func (c *Core) Stop() {
 	}
 	if err := c.Lib.Flush(); err != nil {
 		logx.Printf("saving library: %v", err)
+	}
+}
+
+// quitForUpdate closes WaterLauncher so an update can take its place.
+func (c *Core) quitForUpdate() {
+	if a := application.Get(); a != nil {
+		a.Quit()
 	}
 }
 

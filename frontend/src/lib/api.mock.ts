@@ -1,7 +1,7 @@
 // Made-up library for `npm run dev:mock`: the games from the design canvas,
 // covering every way a game can be found.
 import type { Api } from "./api";
-import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, Saves, ScanState, Session, Settings } from "./types";
+import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, Saves, ScanState, Session, Settings, Startup, UpdateState } from "./types";
 import { sessionActive } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
@@ -65,7 +65,20 @@ let settings: Settings = {
   ownedGOG: false,
   syncSavesBefore: true,
   backupSavesAfter: true,
+  autoUpdate: true,
 };
+
+let startup: Startup = { on: false, disabledByUser: false };
+let updateState: UpdateState = { current: "v1.0.0", status: "idle", progress: 0, page: "https://github.com/ApolloF/WaterLauncher/releases/latest", checkedAt: 0, failed: false };
+const updateListeners = new Set<(s: UpdateState) => void>();
+function setUpdate(p: Partial<UpdateState>) {
+  updateState = { ...updateState, ...p };
+  updateListeners.forEach((cb) => cb(clone(updateState)));
+}
+// ?update=ready in the mock URL shows a downloaded update.
+if (typeof location !== "undefined" && new URLSearchParams(location.search).get("update") === "ready") {
+  updateState = { ...updateState, latest: "v1.0.1", status: "ready", progress: 1, notes: "Fixes and polish.", checkedAt: Math.floor(Date.now() / 1000) };
+}
 
 const hour = 3600;
 function mockSaves(g: Game | undefined): Saves {
@@ -265,6 +278,43 @@ export const mockApi: Api = {
   },
   async setSteamGridDBKey(k) {
     sgdb = !!k;
+  },
+  async startWithWindows() {
+    return clone(startup);
+  },
+  async setStartWithWindows(on) {
+    startup = { ...startup, on };
+    return clone(startup);
+  },
+  updates: {
+    async state() {
+      return clone(updateState);
+    },
+    check() {
+      if (updateState.status === "downloading" || updateState.status === "checking") return;
+      setUpdate({ status: "checking", error: undefined });
+      setTimeout(() => {
+        setUpdate({ status: "downloading", latest: "v1.0.1", notes: "Fixes and polish.", progress: 0, checkedAt: Math.floor(Date.now() / 1000) });
+        let p = 0;
+        const t = setInterval(() => {
+          p = Math.min(1, p + 0.2);
+          setUpdate({ progress: p });
+          if (p >= 1) {
+            clearInterval(t);
+            setUpdate({ status: "ready" });
+          }
+        }, 300);
+      }, 700);
+    },
+    async install() {
+      await wait(400);
+      location.reload();
+    },
+    async openReleasePage() {},
+    onState(cb) {
+      updateListeners.add(cb);
+      return () => updateListeners.delete(cb);
+    },
   },
 
   onLibraryChanged(cb) {

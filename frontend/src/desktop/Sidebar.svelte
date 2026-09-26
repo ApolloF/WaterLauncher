@@ -67,6 +67,13 @@
   </nav>
 
   <div class="foot">
+    {#if lib.update?.status === "ready" && !lib.update.failed}
+      <button type="button" class="update" onclick={() => lib.installUpdate()} title="Installs {lib.update.latest} and restarts WaterLauncher">
+        <Icon name="sparkle" size={16} stroke={2} />
+        <span class="grow">{lib.update.latest} is ready</span>
+        <span class="go">Restart</span>
+      </button>
+    {/if}
     <button type="button" class="scan" onclick={() => api.rescan()} disabled={lib.scan.running} title="Look for games again (F5)">
       <span class="spin" class:on={lib.scan.running || lib.meta.running}><Icon name="refresh" size={16} stroke={2} /></span>
       <span
@@ -188,6 +195,29 @@
   }
   .scan:disabled {
     opacity: 1;
+  }
+  .update {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 8px 9px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-size: 13.5px;
+    font-weight: 700;
+    text-align: left;
+  }
+  .update:hover {
+    filter: brightness(1.12);
+  }
+  .update .go {
+    padding: 3px 9px;
+    border-radius: 99px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 12px;
   }
   .spin {
     display: flex;

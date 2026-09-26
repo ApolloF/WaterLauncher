@@ -1,7 +1,7 @@
 // The frontend's one door to the Go side. In mock mode (`npm run dev:mock`)
 // the same interface is served by made-up data, so the interface can be
 // built and checked in a normal browser. Vite drops the unused one.
-import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, StoreHit } from "./types";
+import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, Startup, StoreHit, UpdateState } from "./types";
 import { realApi } from "./api.real";
 import { mockApi } from "./api.mock";
 
@@ -32,10 +32,22 @@ export interface Api {
   openLog(): Promise<void>;
   hasSteamGridDBKey(): Promise<boolean>;
   setSteamGridDBKey(key: string): Promise<void>;
+  startWithWindows(): Promise<Startup>;
+  setStartWithWindows(on: boolean): Promise<Startup>;
 
   onLibraryChanged(cb: () => void): () => void;
   onScanState(cb: (s: ScanState) => void): () => void;
   onMetaState(cb: (s: MetaState) => void): () => void;
+
+  updates: {
+    state(): Promise<UpdateState>;
+    /** Looks for a new version now (and downloads it). */
+    check(): void;
+    /** Installs the downloaded update and restarts WaterLauncher. */
+    install(): Promise<void>;
+    openReleasePage(): Promise<void>;
+    onState(cb: (s: UpdateState) => void): () => void;
+  };
 
   saves: {
     /** Syncer's view of a game's saves; fresh skips the short cache. */

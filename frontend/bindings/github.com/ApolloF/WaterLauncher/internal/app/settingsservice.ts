@@ -12,6 +12,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as platform$0 from "../platform/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as settings$0 from "../settings/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -75,9 +78,24 @@ export function Save(v: settings$0.Settings): $CancellablePromise<settings$0.Set
 }
 
 /**
+ * SetStartWithWindows turns starting with Windows on or off.
+ */
+export function SetStartWithWindows(on: boolean): $CancellablePromise<platform$0.Startup> {
+    return $Call.ByID(1866676958, on);
+}
+
+/**
  * SetSteamGridDBKey stores (or with "", removes) the SteamGridDB API key,
  * encrypted for this Windows user, and fetches art the stores lacked.
  */
 export function SetSteamGridDBKey(key: string): $CancellablePromise<void> {
     return $Call.ByID(1960903710, key);
+}
+
+/**
+ * StartWithWindows reports whether WaterLauncher starts (in the tray) when
+ * you sign in to Windows.
+ */
+export function StartWithWindows(): $CancellablePromise<platform$0.Startup> {
+    return $Call.ByID(1638874264);
 }

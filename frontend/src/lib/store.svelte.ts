@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { AppInfo, Game, MetaState, ScanState, Session, Settings } from "./types";
+import type { AppInfo, Game, MetaState, ScanState, Session, Settings, UpdateState } from "./types";
 import { lastPlayed, ownedOnly, played, title } from "./types";
 
 export type FilterKind = "all" | "installed" | "notinstalled" | "favorites" | "recent" | "found" | "hidden";
@@ -42,6 +42,7 @@ class LibraryStore {
   loaded = $state(false);
   /** The game being launched or played (or the last one). */
   session = $state<Session | null>(null);
+  update = $state<UpdateState | null>(null);
 
   filter = $state<Filter>({ kind: "all" });
   sort = $state<Sort>("title");
@@ -127,14 +128,18 @@ class LibraryStore {
     api.onScanState((s) => (this.scan = s));
     api.onMetaState((s) => (this.meta = s));
     api.launch.onSession((s) => (this.session = s));
-    const [games, settings, scan, info, meta, session] = await Promise.all([
+    api.updates.onState((s) => (this.update = s));
+    const [games, settings, scan, info, meta, session, update] = await Promise.all([
       api.games(),
       api.settings(),
       api.scanState(),
       api.info(),
       api.metaState(),
       api.launch.session(),
+      api.updates.state(),
     ]);
+    this.update = update;
+    this.announceVersion(info.version);
     this.meta = meta;
     this.session = session;
     this.games = games;
@@ -142,6 +147,22 @@ class LibraryStore {
     this.scan = scan;
     this.info = info;
     this.loaded = true;
+  }
+
+  /** Says so once after WaterLauncher was updated. */
+  private announceVersion(version: string) {
+    try {
+      const seen = localStorage.getItem("wl.version");
+      localStorage.setItem("wl.version", version);
+      if (seen && seen !== version && version !== "dev") this.toast(`Updated to WaterLauncher ${version}`);
+    } catch {
+      /* storage unavailable: skip the note */
+    }
+  }
+
+  /** Installs the downloaded update; WaterLauncher restarts. */
+  installUpdate() {
+    return this.run(() => api.updates.install());
   }
 
   async refresh() {

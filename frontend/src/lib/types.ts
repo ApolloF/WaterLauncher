@@ -87,6 +87,7 @@ export interface Settings {
   padWhilePlaying: "listen" | "off";
   syncSavesBefore: boolean;
   backupSavesAfter: boolean;
+  autoUpdate: boolean;
 }
 
 /** One save folder Syncer looks after. */
@@ -252,6 +253,28 @@ export interface AppInfo {
   version: string;
   dataDir: string;
   logFile: string;
+}
+
+/** Mirrors internal/app.UpdateState. */
+export interface UpdateState {
+  current: string;
+  latest?: string;
+  status: "off" | "idle" | "checking" | "uptodate" | "available" | "downloading" | "ready" | "error";
+  /** 0 to 1 while downloading. */
+  progress: number;
+  notes?: string;
+  page: string;
+  error?: string;
+  checkedAt: number;
+  /** An install of `latest` was started before and didn't take. */
+  failed: boolean;
+}
+
+/** Whether WaterLauncher starts when you sign in to Windows. */
+export interface Startup {
+  on: boolean;
+  /** Turned off in Task Manager's Startup apps. */
+  disabledByUser: boolean;
 }
 
 export const title = (g: Game) => g.customTitle || g.title;

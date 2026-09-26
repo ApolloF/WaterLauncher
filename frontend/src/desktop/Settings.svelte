@@ -3,9 +3,10 @@
   import Toggle from "../components/Toggle.svelte";
   import AccountsSettings from "./AccountsSettings.svelte";
   import AddonsSettings from "./AddonsSettings.svelte";
+  import UpdateStatus from "./UpdateStatus.svelte";
   import { api } from "../lib/api";
   import { lib } from "../lib/store.svelte";
-  import type { Settings } from "../lib/types";
+  import type { Settings, Startup } from "../lib/types";
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -27,10 +28,17 @@
   let autoFolders = $state<string[]>([]);
   let hasKey = $state(false);
   let keyDraft = $state("");
+  let startup = $state<Startup | null>(null);
   $effect(() => {
     api.autoFolders().then((f) => (autoFolders = f));
     api.hasSteamGridDBKey().then((k) => (hasKey = k));
+    api.startWithWindows().then((v) => (startup = v));
   });
+
+  async function setStartup(on: boolean) {
+    const next = await lib.run(() => api.setStartWithWindows(on));
+    if (next) startup = next;
+  }
 
   async function saveKey(k: string) {
     const ok = await lib.run(() => api.setSteamGridDBKey(k.trim()).then(() => true));
@@ -84,6 +92,29 @@
               {/each}
             </div>
             <p class="hint">Applies to desktop mode. Big picture mode is always dark.</p>
+          </div>
+          <div class="group">
+            <span class="glabel">Starting</span>
+            <Toggle
+              checked={startup?.on ?? false}
+              disabled={!startup}
+              title="Start with Windows"
+              detail="WaterLauncher waits in the tray when you sign in, so the PS button opens it and your library is ready."
+              onchange={setStartup}
+            />
+            {#if startup?.on && startup.disabledByUser}
+              <p class="hint warn"><Icon name="warn" size={14} stroke={2} />Windows skips it: it's turned off in Task Manager's Startup apps. Turn it on there too.</p>
+            {/if}
+          </div>
+          <div class="group">
+            <span class="glabel">Updates</span>
+            <Toggle
+              checked={s.autoUpdate}
+              title="Keep WaterLauncher up to date"
+              detail="Checks GitHub twice a day, downloads new versions in the background and installs them the next time WaterLauncher starts."
+              onchange={(v) => set({ autoUpdate: v })}
+            />
+            <UpdateStatus />
           </div>
         {:else if tab === "library"}
           <div class="group">
@@ -182,6 +213,8 @@
           <dl class="kv">
             <dt>Version</dt>
             <dd>{lib.info?.version ?? ""}</dd>
+            <dt>Updates</dt>
+            <dd><UpdateStatus /></dd>
             <dt>Game database</dt>
             <dd>{lib.scan.known ? `${lib.scan.known.toLocaleString()} titles (Ludusavi manifest)` : "Downloading…"}</dd>
             <dt>Last scan</dt>
@@ -308,6 +341,13 @@
     margin: -4px 0 2px;
     font-size: 13.5px;
     color: var(--muted);
+  }
+  .hint.warn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    color: var(--warn);
   }
   .seg {
     display: flex;

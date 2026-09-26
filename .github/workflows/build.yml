@@ -12,6 +12,11 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      # Optional code signing (docs/SIGNING.md). Without these secrets the
+      # build is unsigned; everything else works the same.
+      SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+      SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,20 +35,31 @@ jobs:
         # Pinned: v3 is in beta and moves fast; upgrades are deliberate.
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.26
 
+      - name: Install NSIS
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}\NSIS"
+          if (-not (Test-Path "$nsis\makensis.exe")) { choco install nsis -y --no-progress }
+          "MAKENSIS=$nsis\makensis.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Version
         # Release builds carry their tag (shown in the app and in the exe's
-        # file properties); everything else is "dev".
+        # file properties); everything else is "dev". Tags below v1 or with a
+        # suffix (v1.1.0-beta.1) are published as previews, which the
+        # updater skips.
         run: |
-          $v = 'dev'
+          $v = 'dev'; $num = '0.0.0'; $pre = 'false'
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
             $v = $env:GITHUB_REF_NAME
             $num = ($v.TrimStart('v') -split '[-+]')[0]
+            if ($v -match '-' -or $v -like 'v0.*') { $pre = 'true' }
             $j = Get-Content build/windows/info.json -Raw | ConvertFrom-Json
             $j.fixed.file_version = $num
             $j.info.'0409'.ProductVersion = $num
             $j | ConvertTo-Json -Depth 10 | Set-Content build/windows/info.json -Encoding utf8
           }
           "WL_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "WL_NUM=$num" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "WL_PRERELEASE=$pre" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build
         run: wails3 build VERSION=${{ env.WL_VERSION }}
@@ -59,10 +75,26 @@ jobs:
         working-directory: frontend
         run: npm test
 
-      - name: Checksum
+      - name: Sign
+        run: ./build/windows/sign.ps1 bin/WaterLauncher.exe
+
+      - name: Installer
         run: |
-          $h = (Get-FileHash bin/WaterLauncher.exe -Algorithm SHA256).Hash.ToLower()
-          "$h  WaterLauncher.exe" | Out-File bin/WaterLauncher.exe.sha256 -Encoding ascii
+          wails3 generate webview2bootstrapper -dir build/windows/nsis
+          $defs = @("-DARG_WAILS_AMD64_BINARY=$pwd\bin\WaterLauncher.exe", "-DINFO_PRODUCTVERSION=$env:WL_NUM")
+          if ($env:SIGN_PFX_BASE64) {
+            $defs += "-DSIGN_CMD=powershell -NoProfile -ExecutionPolicy Bypass -File $pwd\build\windows\sign.ps1"
+          }
+          & $env:MAKENSIS -V2 @defs build/windows/nsis/project.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./build/windows/sign.ps1 bin/WaterLauncher-setup.exe
+
+      - name: Checksums
+        run: |
+          foreach ($f in 'WaterLauncher.exe', 'WaterLauncher-setup.exe') {
+            $h = (Get-FileHash "bin/$f" -Algorithm SHA256).Hash.ToLower()
+            "$h  $f" | Out-File "bin/$f.sha256" -Encoding ascii
+          }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -70,6 +102,8 @@ jobs:
           path: |
             bin/WaterLauncher.exe
             bin/WaterLauncher.exe.sha256
+            bin/WaterLauncher-setup.exe
+            bin/WaterLauncher-setup.exe.sha256
 
       - name: Release notes
         if: startsWith(github.ref, 'refs/tags/v')
@@ -83,9 +117,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: WaterLauncher ${{ github.ref_name }}
-          prerelease: true
+          prerelease: ${{ env.WL_PRERELEASE == 'true' }}
+          make_latest: ${{ env.WL_PRERELEASE != 'true' }}
           body_path: ${{ env.WL_NOTES }}
           generate_release_notes: true
           files: |
+            bin/WaterLauncher-setup.exe
+            bin/WaterLauncher-setup.exe.sha256
             bin/WaterLauncher.exe
             bin/WaterLauncher.exe.sha256
