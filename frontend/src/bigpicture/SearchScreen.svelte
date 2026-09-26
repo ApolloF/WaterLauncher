@@ -37,7 +37,7 @@
     return base
       .filter((g) => norm(title(g)).includes(q))
       .sort((a, b) => Number(norm(title(b)).startsWith(q)) - Number(norm(title(a)).startsWith(q)) || a.sortTitle.localeCompare(b.sortTitle))
-      .slice(0, RCOLS * 3);
+      .slice(0, RCOLS * 2);
   });
   $effect(() => onfocus(zone === "results" ? (results[r] ?? null) : (results[0] ?? null)));
   $effect(() => {

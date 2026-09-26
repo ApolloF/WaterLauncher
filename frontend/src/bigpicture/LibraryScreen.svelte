@@ -73,7 +73,9 @@
     i = Math.min(i, Math.max(0, games.length - 1));
   });
   const row = $derived(Math.floor(i / COLS));
-  const visibleRows = $derived(Math.max(1, Math.floor((height - TOP - 120) / ROW)));
+  // The grid shows between the heading and the prompts along the bottom.
+  const BOTTOM = 110;
+  const visibleRows = $derived(Math.max(1, Math.floor((height - TOP - BOTTOM + 30) / ROW)));
   const firstRow = $derived(Math.max(0, Math.min(row - (visibleRows > 1 ? 1 : 0), Math.ceil(games.length / COLS) - visibleRows)));
   const shown = $derived(games.slice(Math.max(0, firstRow - 1) * COLS, (firstRow + visibleRows + 1) * COLS).map((g, k) => ({ g, k: Math.max(0, firstRow - 1) * COLS + k })));
   $effect(() => onfocus(games[i] ?? null));
@@ -150,28 +152,30 @@
   {#if games.length === 0}
     <p class="empty" style:top="{TOP + 20}px">{review ? "Nothing new. Games you install show up here for a week." : tabs[tab].id === "fav" ? "No favorites yet. Add one from a game's page." : "Nothing here yet."}</p>
   {/if}
-  <div class="grid" style:top="{TOP}px" style:transform="translateY({-firstRow * ROW}px)" style:height="{Math.ceil(games.length / COLS) * ROW}px">
-    {#each shown as { g, k } (g.id)}
-      <button
-        type="button"
-        class="cell"
-        class:on={k === i}
-        style:width="{W}px"
-        style:height="{H}px"
-        style:left="{SIDE + (k % COLS) * (W + GAP)}px"
-        style:top="{Math.floor(k / COLS) * ROW}px"
-        onclick={() => (k === i ? open(g) : (i = k))}
-        aria-label={title(g)}
-      >
-        <GameArt game={g} kind="cover" />
-        {#if !g.meta?.cover}<span class="ct">{title(g)}</span>{/if}
-        {#if review}<span class="badge" class:check={g.needsReview}>{g.needsReview ? "Check" : "New"}</span>{/if}
-      </button>
-      <span class="name" class:on={k === i} style:width="{W}px" style:left="{SIDE + (k % COLS) * (W + GAP)}px" style:top="{Math.floor(k / COLS) * ROW + H + 12}px">
-        {title(g)}
-        {#if review}<span class="how">{g.needsReview ? "Found by its folder name" : g.how}</span>{/if}
-      </span>
-    {/each}
+  <div class="view" style:top="{TOP - 24}px" style:bottom="{BOTTOM}px">
+    <div class="grid" style:transform="translateY({-firstRow * ROW}px)" style:height="{Math.ceil(games.length / COLS) * ROW}px">
+      {#each shown as { g, k } (g.id)}
+        <button
+          type="button"
+          class="cell"
+          class:on={k === i}
+          style:width="{W}px"
+          style:height="{H}px"
+          style:left="{SIDE + (k % COLS) * (W + GAP)}px"
+          style:top="{Math.floor(k / COLS) * ROW}px"
+          onclick={() => (k === i ? open(g) : (i = k))}
+          aria-label={title(g)}
+        >
+          <GameArt game={g} kind="cover" />
+          {#if !g.meta?.cover}<span class="ct">{title(g)}</span>{/if}
+          {#if review}<span class="badge" class:check={g.needsReview}>{g.needsReview ? "Check" : "New"}</span>{/if}
+        </button>
+        <span class="name" class:on={k === i} style:width="{W}px" style:left="{SIDE + (k % COLS) * (W + GAP)}px" style:top="{Math.floor(k / COLS) * ROW + H + 12}px">
+          {title(g)}
+          {#if review}<span class="how">{g.needsReview ? "Found by its folder name" : g.how}</span>{/if}
+        </span>
+      {/each}
+    </div>
   </div>
   <div class="hints">
     <Hints
@@ -249,10 +253,20 @@
     line-height: 1.45;
     color: #9ba8b5;
   }
+  /* Room above the first row for the selected cover to grow into; the
+     rows fade out before the prompts. */
+  .view {
+    position: absolute;
+    left: 0;
+    right: 0;
+    overflow: hidden;
+    mask-image: linear-gradient(180deg, #000 calc(100% - 50px), transparent 100%);
+  }
   .grid {
     position: absolute;
     left: 0;
     right: 0;
+    top: 24px;
     transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .cell {
