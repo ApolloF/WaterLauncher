@@ -1,0 +1,90 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x' # latest patch: releases ship Go's security fixes
+          check-latest: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails
+        # Pinned: v3 is in beta and moves fast; upgrades are deliberate.
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.26
+
+      - name: Version
+        # Release builds carry their tag (shown in the app and in the exe's
+        # file properties); everything else is "dev".
+        run: |
+          $v = 'dev'
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $v = $env:GITHUB_REF_NAME
+            $num = ($v.TrimStart('v') -split '[-+]')[0]
+            $j = Get-Content build/windows/info.json -Raw | ConvertFrom-Json
+            $j.fixed.file_version = $num
+            $j.info.'0409'.ProductVersion = $num
+            $j | ConvertTo-Json -Depth 10 | Set-Content build/windows/info.json -Encoding utf8
+          }
+          "WL_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build
+        run: wails3 build VERSION=${{ env.WL_VERSION }}
+
+      - name: Test
+        run: go test ./...
+
+      - name: Check frontend
+        working-directory: frontend
+        run: npm run check
+
+      - name: Test frontend
+        working-directory: frontend
+        run: npm test
+
+      - name: Checksum
+        run: |
+          $h = (Get-FileHash bin/WaterLauncher.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  WaterLauncher.exe" | Out-File bin/WaterLauncher.exe.sha256 -Encoding ascii
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WaterLauncher
+          path: |
+            bin/WaterLauncher.exe
+            bin/WaterLauncher.exe.sha256
+
+      - name: Release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          $notes = "docs/releases/$env:GITHUB_REF_NAME.md"
+          if (-not (Test-Path $notes)) { "Release $env:GITHUB_REF_NAME" | Out-File $notes -Encoding utf8 }
+          "WL_NOTES=$notes" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          body_path: ${{ env.WL_NOTES }}
+          generate_release_notes: true
+          files: |
+            bin/WaterLauncher.exe
+            bin/WaterLauncher.exe.sha256
