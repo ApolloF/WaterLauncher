@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Normalize keeps only letters and digits (any script), lower-cased, so
@@ -16,6 +17,67 @@ func Normalize(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// Roman numerals written as numbers, for LooseKey. A lone "i" is left
+// alone: it's more often a word than a 1.
+var romans = map[string]string{
+	"ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "x": "10",
+	"xi": "11", "xii": "12", "xiii": "13", "xiv": "14", "xv": "15", "xvi": "16",
+}
+
+// LooseKey is a more forgiving Normalize for names that don't match
+// exactly, as folder names often don't: apostrophes, possessive and
+// plural s, Roman numerals and a leading "The" don't count, so
+// "Assassin Creed Black Flag Resynced" and "Assassin's Creed: Black Flag
+// Resynced" get the same key, as do "Baldurs Gate III" and "Baldur's Gate 3".
+func LooseKey(s string) string {
+	// One pass, as the game database's 50,000 titles all go through here.
+	out := make([]byte, 0, len(s))
+	var buf [64]byte
+	word := buf[:0]
+	words, leadThe := 0, false
+	flush := func() {
+		if len(word) == 0 {
+			return
+		}
+		words++
+		if n, ok := romans[string(word)]; ok {
+			out = append(out, n...)
+		} else if words == 1 && string(word) == "the" {
+			leadThe = true
+		} else if len(word) >= 4 && word[len(word)-1] == 's' {
+			out = append(out, word[:len(word)-1]...)
+		} else {
+			out = append(out, word...)
+		}
+		word = word[:0]
+	}
+	var prev rune
+	for _, c := range s {
+		switch {
+		case c == '\'' || c == '’' || c == '`':
+			continue // "Assassin's" stays one word
+		case c == '&':
+			flush()
+			word = append(word, "and"...)
+			flush()
+		case unicode.IsLetter(c) || unicode.IsDigit(c):
+			// Camel case and letter-digit runs are words too ("AssassinsCreed4").
+			if unicode.IsLower(prev) && unicode.IsUpper(c) || unicode.IsLetter(prev) && unicode.IsDigit(c) || unicode.IsDigit(prev) && unicode.IsLetter(c) {
+				flush()
+			}
+			word = utf8.AppendRune(word, unicode.ToLower(c))
+		default:
+			flush()
+		}
+		prev = c
+	}
+	flush()
+	if leadThe && words == 1 {
+		return "the"
+	}
+	return string(out)
 }
 
 var (

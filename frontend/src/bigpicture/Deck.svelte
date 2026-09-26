@@ -256,6 +256,7 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
+    isolation: isolate;
   }
   .ambient {
     position: absolute;

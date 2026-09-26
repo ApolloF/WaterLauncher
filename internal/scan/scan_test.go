@@ -50,6 +50,34 @@ func TestCleanTitle(t *testing.T) {
 	}
 }
 
+func TestLooseKey(t *testing.T) {
+	same := [][2]string{
+		{"Assassin Creed Black Flag Resynced", "Assassin's Creed: Black Flag Resynced"},
+		{"Baldurs Gate III", "Baldur's Gate 3"},
+		{"AssassinsCreed4", "Assassin's Creed 4"},
+		{"Sims 4", "The Sims 4"},
+		{"Grand Theft Auto 5", "Grand Theft Auto V"},
+		{"Ori & the Blind Forest", "Ori and the Blind Forest"},
+		{"Tom Clancy’s Rainbow Six Siege", "Tom Clancys Rainbow Six Siege"},
+	}
+	for _, p := range same {
+		if a, b := LooseKey(p[0]), LooseKey(p[1]); a != b {
+			t.Errorf("LooseKey(%q) = %q, LooseKey(%q) = %q, want equal", p[0], a, p[1], b)
+		}
+	}
+	differ := [][2]string{
+		{"Portal", "Portal 2"},
+		{"Hades", "Hades II"},
+		{"Far Cry 5", "Far Cry 6"},
+		{"Metro 2033", "Metro Exodus"},
+	}
+	for _, p := range differ {
+		if a, b := LooseKey(p[0]), LooseKey(p[1]); a == b {
+			t.Errorf("LooseKey(%q) = LooseKey(%q) = %q, want different", p[0], p[1], a)
+		}
+	}
+}
+
 func TestSortTitle(t *testing.T) {
 	if SortTitle("The Sims 4") != "sims 4" || SortTitle("A Hat in Time") != "hat in time" || SortTitle("The") != "the" {
 		t.Error("articles not dropped")

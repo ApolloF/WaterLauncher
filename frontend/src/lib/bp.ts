@@ -33,10 +33,10 @@ export const accentOf = (g: Game | null | undefined) => (g ? (g.meta?.accent ?? 
 /** "18 h · Played yesterday" style line. */
 export function metaLine(g: Game): string {
   const p = played(g);
-  const parts = [p ? playtime(p) : "Not played yet"];
   const lp = lastPlayed(g);
-  parts.push(lp ? `Played ${ago(lp).toLowerCase()}` : `Added ${ago(g.addedAt).toLowerCase()}`);
-  return parts.join(" · ");
+  // Steam can know when a game was last played but count under a minute.
+  if (!p && !lp) return `Not played yet · Added ${ago(g.addedAt).toLowerCase()}`;
+  return [p ? playtime(p) : "", lp ? `Played ${ago(lp).toLowerCase()}` : `Added ${ago(g.addedAt).toLowerCase()}`].filter(Boolean).join(" · ");
 }
 
 export { title };

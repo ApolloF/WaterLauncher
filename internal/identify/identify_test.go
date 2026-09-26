@@ -48,6 +48,17 @@ Stardew Valley:
     Stardew Valley: {}
   steam:
     id: 413150
+"Assassin's Creed: Black Flag Resynced":
+  installDir:
+    Assassin's Creed Black Flag Resynced: {}
+  steam:
+    id: 3751950
+Worm:
+  steam:
+    id: 1000001
+Worms:
+  steam:
+    id: 1000002
 `
 
 func index(t *testing.T) *Index {
@@ -64,7 +75,7 @@ func TestParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(es) != 6 {
+	if len(es) != 9 {
 		t.Fatalf("got %d entries", len(es))
 	}
 	if es[0].Name != "Baldur's Gate 3" || es[0].SteamID != 1086940 || es[0].InstallDirs[0] != "Baldurs Gate 3" {
@@ -97,6 +108,11 @@ func TestIdentify(t *testing.T) {
 		{"folder name", scan.Candidate{Title: "Kl4us Game", Dir: `D:\Games\KLAUS`, Source: scan.Folder}, "Klaus", 431330, 70},
 		{"store title kept", scan.Candidate{Title: "Stardew Valley", Source: scan.Steam, SteamAppID: 413150}, "Stardew Valley", 413150, 100},
 		{"unknown folder", scan.Candidate{Title: "Homebrew Thing", Dir: `D:\Games\Homebrew Thing`, Source: scan.Folder}, "Homebrew Thing", 0, 40},
+		{"similar title", scan.Candidate{Title: "Assassin Creed Black Flag Resynced", Dir: `D:\Games\Assassin Creed Black Flag Resynced`, Source: scan.Installer}, "Assassin's Creed: Black Flag Resynced", 3751950, 72},
+		{"similar folder", scan.Candidate{Title: "AC BFR", Dir: `D:\Games\Assassins Creed Black Flag Resynced [DODI Repack]`, Source: scan.Installer, TitleTrusted: true}, "Assassin's Creed: Black Flag Resynced", 3751950, 72},
+		{"roman numerals", scan.Candidate{Title: "Baldurs Gate III", Source: scan.Folder}, "Baldur's Gate 3", 1086940, 72},
+		{"similar but ambiguous", scan.Candidate{Title: "The Worm", Source: scan.Folder}, "The Worm", 0, 40},
+		{"store title, similar", scan.Candidate{Title: "Assassins Creed Black Flag Resynced", Source: scan.Epic, How: "Epic Games library"}, "Assassins Creed Black Flag Resynced", 3751950, 100},
 	} {
 		m := ix.Identify(tc.c)
 		if m.Title != tc.title || m.SteamAppID != tc.steam || m.Confidence != tc.conf {

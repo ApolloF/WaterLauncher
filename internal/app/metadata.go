@@ -5,6 +5,7 @@ import (
 	"errors"
 	"runtime/debug"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,7 +80,7 @@ func (w *metaWorker) queueMissing() {
 		if t, ok := w.failed[g.ID]; ok && now.Sub(t) < metaRetryGap {
 			continue
 		}
-		fresh := g.Meta != nil && now.Sub(time.Unix(g.Meta.FetchedAt, 0)) < metaMaxAge
+		fresh := g.Meta != nil && g.Meta.Version >= meta.Version && now.Sub(time.Unix(g.Meta.FetchedAt, 0)) < metaMaxAge
 		if fresh && (g.Meta.Cover != "" || !hasKey) {
 			continue
 		}
@@ -173,16 +174,15 @@ func (w *metaWorker) fetch(ctx context.Context, id int64) error {
 	if appID == 0 {
 		appID = g.MetaAppID
 	}
-	// Unknown to the game database: an exact title match on the Steam store
-	// still gives art and details.
-	if appID == 0 && g.GogID == "" {
+	// Unknown to the game database: the Steam store usually still knows the
+	// game by name, for art and details. A clear hit also settles which game
+	// it is (unless the user already said), so it doesn't wait for a check.
+	if g.SteamAppID == 0 && g.GogID == "" && (appID == 0 || !g.Confirmed && g.Confidence < storeMatchConfidence) {
 		if hits, err := w.client.SearchSteam(ctx, g.DisplayTitle()); err == nil {
-			want := scan.Normalize(g.DisplayTitle())
-			for _, h := range hits {
-				if scan.Normalize(h.Name) == want {
-					appID = h.AppID
-					_, _ = w.c.Lib.Update(id, func(g *library.Game) { g.MetaAppID = h.AppID })
-					break
+			if h, ok := pickStoreHit(g.DisplayTitle(), hits); ok {
+				appID = h.AppID
+				if _, err := w.c.Lib.Update(id, func(g *library.Game) { adoptStoreMatch(g, h) }); err == nil {
+					w.gameChanged(id)
 				}
 			}
 		} else if errors.Is(err, meta.ErrRateLimited) {
@@ -202,6 +202,63 @@ func (w *metaWorker) fetch(ctx context.Context, id int64) error {
 	_, err = w.c.Lib.Update(id, func(g *library.Game) { g.Meta = m })
 	w.gameChanged(id)
 	return err
+}
+
+// How a game the game database doesn't know was identified by a Steam
+// store search, and how sure that is: enough to skip the check.
+const (
+	storeMatchHow        = "Matched on the Steam store"
+	storeMatchConfidence = 80
+)
+
+// pickStoreHit finds the store search result that is this game: one with
+// the same name, or else the only one with a similar name (scan.LooseKey:
+// "Assassin Creed …" for "Assassin's Creed …"). DLC and editions with
+// longer names don't count.
+func pickStoreHit(title string, hits []meta.StoreHit) (meta.StoreHit, bool) {
+	want := scan.Normalize(title)
+	for _, h := range hits {
+		if scan.Normalize(h.Name) == want {
+			return h, true
+		}
+	}
+	loose := scan.LooseKey(title)
+	if len(loose) < 4 {
+		return meta.StoreHit{}, false
+	}
+	var found *meta.StoreHit
+	for i := range hits {
+		if scan.LooseKey(hits[i].Name) != loose {
+			continue
+		}
+		if found != nil && found.AppID != hits[i].AppID {
+			return meta.StoreHit{}, false // two games: don't guess
+		}
+		found = &hits[i]
+	}
+	if found == nil {
+		return meta.StoreHit{}, false
+	}
+	return *found, true
+}
+
+var storeMarks = strings.NewReplacer("™", "", "®", "", "©", "")
+
+// adoptStoreMatch records a store search hit: its app for metadata and,
+// unless the user confirmed the game or the game database already knew
+// it, its name and identity.
+func adoptStoreMatch(g *library.Game, h meta.StoreHit) {
+	g.MetaAppID = h.AppID
+	if g.Confirmed || g.Confidence >= storeMatchConfidence {
+		return
+	}
+	if name := strings.Join(strings.Fields(storeMarks.Replace(h.Name)), " "); name != "" {
+		g.Title, g.SortTitle = name, scan.SortTitle(name)
+	}
+	if g.CustomTitle != "" {
+		g.SortTitle = scan.SortTitle(g.CustomTitle)
+	}
+	g.MatchHow, g.Confidence, g.NeedsReview = storeMatchHow, storeMatchConfidence, false
 }
 
 // gameChanged tells the interface about new metadata, a few games at a

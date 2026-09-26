@@ -1,14 +1,15 @@
 <script lang="ts">
   import Glyph from "./Glyph.svelte";
 
-  type H = { button: "confirm" | "back" | "action" | "info" | "menu" | "view" | "lb" | "rb" | "lt" | "rt" | "home"; label: string };
+  type B = "confirm" | "back" | "action" | "info" | "menu" | "view" | "lb" | "rb" | "lt" | "rt" | "home";
+  type H = { button: B; also?: B; label: string };
   let { hints, left = "" }: { hints: H[]; left?: string } = $props();
 </script>
 
 <div class="hints">
   {#if left}<span class="left">{left}</span>{/if}
   {#each hints as h (h.button + h.label)}
-    <span class="h"><Glyph button={h.button} />{h.label}</span>
+    <span class="h"><span class="gs"><Glyph button={h.button} />{#if h.also}<Glyph button={h.also} />{/if}</span>{h.label}</span>
   {/each}
 </div>
 
@@ -31,5 +32,9 @@
     display: inline-flex;
     align-items: center;
     gap: 12px;
+  }
+  .gs {
+    display: inline-flex;
+    gap: 6px;
   }
 </style>

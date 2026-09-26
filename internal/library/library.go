@@ -83,11 +83,13 @@ type Meta struct {
 	Controller   string   `json:"controller,omitempty"`
 	Cover        string   `json:"cover,omitempty"` // local art URLs (/art/…)
 	Hero         string   `json:"hero,omitempty"`
+	Backdrop     string   `json:"backdrop,omitempty"` // 16:9 full-screen background
 	Logo         string   `json:"logo,omitempty"`
 	Icon         string   `json:"icon,omitempty"`
 	Accent       string   `json:"accent,omitempty"` // CSS colour from the art
 	FetchedAt    int64    `json:"fetchedAt,omitempty"`
-	Source       string   `json:"source,omitempty"` // where the metadata came from
+	Source       string   `json:"source,omitempty"`  // where the metadata came from
+	Version      int      `json:"version,omitempty"` // meta.Version that fetched it
 	ArtOverrides []string `json:"artOverrides,omitempty"`
 }
 
@@ -253,7 +255,10 @@ func (s *Store) ApplyScan(found []Found, now time.Time) (added, removed int) {
 			s.byKey[g.Key] = g
 			added++
 		}
-		if !g.Confirmed {
+		// A game this scan can't identify but a Steam store search did (see
+		// metaWorker.fetch) keeps that identity until a scan knows better.
+		byStore := g.MetaAppID > 0 && f.SteamAppID == 0 && f.GogID == "" && f.Confidence < g.Confidence
+		if !g.Confirmed && !byStore {
 			g.Title, g.SortTitle = f.Title, f.SortTitle
 		}
 		if g.CustomTitle != "" {
@@ -265,7 +270,7 @@ func (s *Store) ApplyScan(found []Found, now time.Time) (added, removed int) {
 		if !g.UserExe {
 			g.Exe, g.Args, g.WorkDir = f.Exe, f.Args, f.WorkDir
 		}
-		if !g.Confirmed {
+		if !g.Confirmed && !byStore {
 			if g.SteamAppID != f.SteamAppID && g.Meta != nil {
 				g.Meta = nil // a different game now: fetch its metadata again
 			}

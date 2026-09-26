@@ -78,7 +78,7 @@
 </script>
 
 <div class="sheet">
-  <div class="art"><GameArt {game} kind="hero" /></div>
+  <div class="art"><GameArt {game} kind="backdrop" /></div>
   <div class="shade"></div>
   <div class="content">
     <span class="src">{game.sourceLabel}</span>

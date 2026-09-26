@@ -44,6 +44,18 @@ let games: Game[] = [
   game({ title: "Copper Fields", source: "gog", sourceLabel: "GOG", installed: false, playtime: 21 * 3600, lastPlayed: now - 700 * day }),
 ];
 
+// ?games=N in the mock URL adds made-up games, to try the layouts with a
+// bigger library; ?layout=console|orbit|deck picks the big picture layout.
+const mockParams = new URLSearchParams(typeof location !== "undefined" ? location.search : "");
+{
+  const words = ["Ash", "Brine", "Cinder", "Dusk", "Echo", "Fable", "Glass", "Harbor", "Iris", "Jade", "Kiln", "Lark", "Moss", "North", "Onyx", "Pale"];
+  const more = Math.min(2000, Number(mockParams.get("games")) || 0);
+  for (let k = 0; k < more; k++) {
+    const t = `${words[k % words.length]} ${words[(k * 7 + 3) % words.length]} ${Math.floor(k / words.length) + 1}`;
+    games.push(game({ title: t, playtime: (k % 5) * 3600, lastPlayed: k % 3 ? now - (k + 2) * day : undefined, addedAt: now - (k + 30) * day, sizeBytes: (k % 9) * 7e9 }));
+  }
+}
+
 let settings: Settings = {
   folders: ["D:\\Games"],
   autoFolders: true,
@@ -51,7 +63,7 @@ let settings: Settings = {
   reviewUncertain: true,
   showNotInstalled: false,
   theme: "system",
-  bigPictureLayout: "deck",
+  bigPictureLayout: (["console", "orbit"] as const).find((l) => l === mockParams.get("layout")) ?? "deck",
   openBigPictureOnController: true,
   startInBigPicture: false,
   sounds: false,

@@ -148,6 +148,36 @@ func TestConfirmedMatchSurvivesRescan(t *testing.T) {
 	}
 }
 
+func TestStoreMatchSurvivesRescan(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "library.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_800_000_000, 0)
+	found := []Found{{Key: `d:\games\ac`, Title: "Assassin Creed Black Flag Resynced", SortTitle: "assassin creed black flag resynced", Source: "installer", Confidence: 40, NeedsReview: true, MatchHow: "Not matched to a known game"}}
+	s.ApplyScan(found, now)
+	id := s.Games()[0].ID
+	// What the metadata worker does after a Steam store search found it.
+	if _, err := s.Update(id, func(g *Game) {
+		g.MetaAppID, g.Title, g.SortTitle = 3751950, "Assassin's Creed Black Flag Resynced", "assassin's creed black flag resynced"
+		g.MatchHow, g.Confidence, g.NeedsReview = "Matched on the Steam store", 80, false
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.ApplyScan(found, now.Add(time.Hour))
+	g, _ := s.Get(id)
+	if g.Title != "Assassin's Creed Black Flag Resynced" || g.NeedsReview || g.Confidence != 80 {
+		t.Errorf("store match lost on rescan: %+v", g)
+	}
+	// A scan that knows the game (a newer game database) takes over.
+	found[0].Title, found[0].SteamAppID, found[0].Confidence, found[0].NeedsReview, found[0].MatchHow = "Assassin's Creed: Black Flag Resynced", 3751950, 72, false, "Matched by a similar title"
+	s.ApplyScan(found, now.Add(2*time.Hour))
+	g, _ = s.Get(id)
+	if g.Title != "Assassin's Creed: Black Flag Resynced" || g.SteamAppID != 3751950 || g.MatchHow != "Matched by a similar title" {
+		t.Errorf("scan's identity not taken: %+v", g)
+	}
+}
+
 func TestOwnedGames(t *testing.T) {
 	s, _ := Open(filepath.Join(t.TempDir(), "library.json"))
 	now := time.Now()
