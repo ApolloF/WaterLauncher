@@ -250,3 +250,35 @@ func TestUsableDirs(t *testing.T) {
 		t.Errorf("usableDirs = %v", got)
 	}
 }
+
+// Quitting WaterLauncher mid-game hands over the playtime counted so far
+// before Close returns, so it's saved with the library.
+func TestCloseSavesPlaytime(t *testing.T) {
+	sys := platform.Proc{PID: 10, PPID: 1, Name: "explorer.exe"}
+	game := platform.Proc{PID: 100, PPID: 10, Name: "game.exe"}
+	f := &fakePC{
+		paths:  map[uint32]string{10: `C:\Windows\explorer.exe`, 100: gameDir + `\game.exe`},
+		frames: [][]platform.Proc{{sys, game}}, // runs until closed
+	}
+	m, _ := newTest(f)
+	var mu sync.Mutex
+	var played int64
+	running := make(chan struct{}, 1)
+	err := m.Launch(context.Background(), Plan{
+		GameID: 7, Title: "Some Game", Dirs: []string{gameDir},
+		Start:  func() (uint32, string, error) { return 100, "direct", nil },
+		Played: func(s int64) { mu.Lock(); played += s; mu.Unlock() },
+		OnRun:  func() { running <- struct{}{} },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-running
+	time.Sleep(20 * time.Millisecond) // a few polls: some seconds counted
+	m.Close()
+	mu.Lock()
+	defer mu.Unlock()
+	if played == 0 {
+		t.Error("Close returned before the playtime was handed over")
+	}
+}

@@ -67,6 +67,14 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Test with the race detector
+        # Needs cgo; the runner's MinGW gcc provides it.
+        env:
+          CGO_ENABLED: '1'
+        run: |
+          if (Get-Command gcc -ErrorAction SilentlyContinue) { go test -race ./internal/... }
+          else { Write-Host 'gcc not found: skipping the race detector' }
+
       - name: Check frontend
         working-directory: frontend
         run: npm run check
