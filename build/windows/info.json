@@ -1,10 +1,10 @@
 {
 	"fixed": {
-		"file_version": "0.4.0"
+		"file_version": "0.5.0"
 	},
 	"info": {
 		"0409": {
-			"ProductVersion": "0.4.0",
+			"ProductVersion": "0.5.0",
 			"CompanyName": "ApolloF",
 			"FileDescription": "WaterLauncher",
 			"LegalCopyright": "© 2026 ApolloF, MIT License",
