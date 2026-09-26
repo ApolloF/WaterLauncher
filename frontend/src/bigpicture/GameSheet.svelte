@@ -8,7 +8,7 @@
   import { feedback, useInput } from "../lib/input.svelte";
   import { lib } from "../lib/store.svelte";
   import { savesSummary } from "../lib/saves";
-  import { title, type AddonBadge, type Game, type Saves } from "../lib/types";
+  import { storeName, title, type AddonBadge, type Game, type Saves } from "../lib/types";
   import Hints from "./Hints.svelte";
   import { clamp } from "./nav";
 
@@ -42,7 +42,7 @@
     return () => (live = false);
   });
   const buttons = $derived([
-    { id: "play", label: game.installed ? "Play" : "Not installed" },
+    { id: "play", label: game.installed ? "Play" : game.installUri ? "Install with " + storeName(game) : "Not installed" },
     { id: "fav", label: game.favorite ? "Favorite" : "Add to favorites" },
     { id: "pad", label: `Controller: ${modeLabel[game.padMode ?? ""]}` },
   ]);
@@ -50,6 +50,7 @@
   function press(id: string) {
     feedback.confirm();
     if (id === "play" && game.installed) onplay();
+    else if (id === "play" && game.installUri) lib.run(() => api.install(game.id).then(() => lib.toast(storeName(game) + " will install " + title(game))));
     else if (id === "fav") lib.run(() => api.setFavorite(game.id, !game.favorite));
     else if (id === "pad") {
       const next = modes[(modes.indexOf((game.padMode ?? "") as (typeof modes)[number]) + 1) % modes.length];

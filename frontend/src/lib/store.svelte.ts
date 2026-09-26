@@ -1,6 +1,6 @@
 import { api } from "./api";
 import type { AppInfo, Game, MetaState, ScanState, Session, Settings } from "./types";
-import { lastPlayed, played, title } from "./types";
+import { lastPlayed, ownedOnly, played, title } from "./types";
 
 export type FilterKind = "all" | "installed" | "notinstalled" | "favorites" | "recent" | "found" | "hidden";
 export type Filter = { kind: FilterKind } | { kind: "source"; source: string };
@@ -53,7 +53,8 @@ class LibraryStore {
    * the setting says so), without hidden ones. */
   base = $derived.by(() => {
     const showAll = this.settings?.showNotInstalled ?? false;
-    return this.games.filter((g) => !g.hidden && (g.installed || showAll));
+    const showOwned = this.settings?.showOwned ?? false;
+    return this.games.filter((g) => !g.hidden && (g.installed || (showAll && !ownedOnly(g)) || (showOwned && !!g.owned)));
   });
 
   visible = $derived.by(() => {

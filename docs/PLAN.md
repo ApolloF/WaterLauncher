@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **v0.1 to v0.6 released** as prereleases (2026-09-25 and 26). Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). **v0.7** (owned games that aren't installed) is in progress.
+Status: **v0.1 to v0.6 released** as prereleases (2026-09-25 and 26). Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). **v0.7** (owned games that aren't installed) is built on `feature/v0.7-owned`. It needs a test with a real Steam key and Epic sign-in before release.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
@@ -90,7 +90,12 @@ Data: `%APPDATA%\WaterLauncher` (`settings.json`, `library.json`, log), `%LOCALA
 - **Identify:** exact ID first, then the Ludusavi manifest (install folder name to title and AppID, already used by Syncer), then PCGamingWiki, then normalised fuzzy title matching. Each match gets a confidence score. Low-confidence matches wait in *Found on this PC* for a check (setting on by default).
 - **Main exe:** prefer the launcher exe in the game's root folder and known engine patterns; skip uninstallers, redistributables and crash handlers. Signals include version info and icon.
 - **Duplicates:** the same folder or the same store ID merges. A store copy and an unofficial copy can both exist and are labelled.
-- **Owned but not installed (opt-in):** Steam through the user's Web API key plus the SteamID from `loginusers.vdf`; GOG through Galaxy's local database when present; Epic through a sign-in the user completes themselves (token stored with DPAPI). *Install* opens the store client (`steam://install/…` and equivalents).
+- **Owned but not installed (opt-in, v0.7):**
+  - Steam: `IPlayerService/GetOwnedGames` with the user's own Web API key (DPAPI) and the SteamID of the account in use (from `gamekit/steam`).
+  - GOG: Galaxy's `galaxy-2.0.db`, read with a small read-only SQLite reader (`internal/sqlite`, WAL included) instead of a ~7 MB SQLite library.
+  - Epic: the public launcher client's OAuth. The user signs in on epicgames.com and pastes the one-time code; only the refresh token is kept (DPAPI).
+  - Owned-only games are library records keyed `owned:<store>:<id>`. A scan that finds the game installed merges them and keeps the user's choices.
+  - *Install* opens the store (`steam://install/…`, `goggalaxy://openGameView/…`, `com.epicgames.launcher://apps/…?action=install`).
 - **Speed:** the first scan runs in parallel, and later scans are incremental, driven by watchers.
 
 ## 5. Metadata and art

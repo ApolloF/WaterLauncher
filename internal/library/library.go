@@ -30,15 +30,17 @@ type Game struct {
 	Repacker    string `json:"repacker,omitempty"`
 	DRMFree     string `json:"drmFree,omitempty"`
 
-	Installed bool   `json:"installed"`
-	PadHint   string `json:"padHint,omitempty"` // the game ships libScePad or SDL
-	Dir       string `json:"dir"`
-	Exe       string `json:"exe,omitempty"`
-	Args      string `json:"args,omitempty"`
-	WorkDir   string `json:"workDir,omitempty"`
-	LaunchURI string `json:"launchUri,omitempty"`
-	UserExe   bool   `json:"userExe,omitempty"` // the user picked the executable; scans leave it alone
-	SizeBytes int64  `json:"sizeBytes,omitempty"`
+	Installed  bool   `json:"installed"`
+	PadHint    string `json:"padHint,omitempty"` // the game ships libScePad or SDL
+	Dir        string `json:"dir"`
+	Exe        string `json:"exe,omitempty"`
+	Args       string `json:"args,omitempty"`
+	WorkDir    string `json:"workDir,omitempty"`
+	LaunchURI  string `json:"launchUri,omitempty"`
+	UserExe    bool   `json:"userExe,omitempty"`    // the user picked the executable; scans leave it alone
+	Owned      bool   `json:"owned,omitempty"`      // a connected store account owns it
+	InstallURI string `json:"installUri,omitempty"` // asks the store to install it
+	SizeBytes  int64  `json:"sizeBytes,omitempty"`
 
 	SteamAppID int    `json:"steamAppId,omitempty"`
 	MetaAppID  int    `json:"metaAppId,omitempty"` // Steam app found by a store search, used only for metadata
@@ -217,7 +219,13 @@ func (s *Store) ApplyScan(found []Found, now time.Time) (added, removed int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ts := now.Unix()
-	first := len(s.games) == 0
+	first := true // the very first scan: nothing found on this PC before
+	for _, g := range s.games {
+		if !g.IsOwnedOnly() {
+			first = false
+			break
+		}
+	}
 	seen := map[string]bool{}
 	for _, f := range found {
 		seen[f.Key] = true
@@ -257,6 +265,7 @@ func (s *Store) ApplyScan(found []Found, now time.Time) (added, removed int) {
 			removed++
 		}
 	}
+	s.mergeOwnedLocked()
 	s.scheduleSaveLocked()
 	return added, removed
 }

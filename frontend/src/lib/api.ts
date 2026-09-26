@@ -1,7 +1,7 @@
 // The frontend's one door to the Go side. In mock mode (`npm run dev:mock`)
 // the same interface is served by made-up data, so the interface can be
 // built and checked in a normal browser. Vite drops the unused one.
-import type { AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, StoreHit } from "./types";
+import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, StoreHit } from "./types";
 import { realApi } from "./api.real";
 import { mockApi } from "./api.mock";
 
@@ -16,6 +16,8 @@ export interface Api {
   confirmMatch(id: number): Promise<Game>;
   chooseExe(id: number): Promise<Game>;
   openFolder(id: number): Promise<void>;
+  /** Asks the game's store to install it. */
+  install(id: number): Promise<void>;
   metaState(): Promise<MetaState>;
   refreshMetadata(id: number): Promise<void>;
   searchSteam(query: string): Promise<StoreHit[]>;
@@ -40,6 +42,18 @@ export interface Api {
     get(id: number, fresh?: boolean): Promise<Saves>;
     openSyncer(): Promise<void>;
     getSyncer(): Promise<void>;
+  };
+
+  accounts: {
+    get(): Promise<Accounts>;
+    sync(): void;
+    setSteamKey(key: string): Promise<Accounts>;
+    openSteamKeyPage(): Promise<void>;
+    setGOG(on: boolean): Promise<Accounts>;
+    openEpicSignIn(): Promise<void>;
+    epicSignIn(pasted: string): Promise<Accounts>;
+    epicSignOut(): Promise<Accounts>;
+    onChange(cb: (a: Accounts) => void): () => void;
   };
 
   addons: {

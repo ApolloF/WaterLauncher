@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
+  import AccountsSettings from "./AccountsSettings.svelte";
   import AddonsSettings from "./AddonsSettings.svelte";
   import { api } from "../lib/api";
   import { lib } from "../lib/store.svelte";
@@ -94,8 +95,9 @@
             {/if}
             <Toggle checked={s.detectUnofficial} title="Recognise unofficial copies" detail="Steam emulators, cracks and repacks, matched to the right game by their Steam AppID." onchange={(v) => set({ detectUnofficial: v })} />
             <Toggle checked={s.reviewUncertain} title="Let me check uncertain matches" detail="Games matched only by folder name wait in Found on this PC." onchange={(v) => set({ reviewUncertain: v })} />
-            <Toggle checked={s.showNotInstalled} title="Show games that aren't installed" detail="Games you uninstalled stay listed with their playtime. Owned store games come in a later version." onchange={(v) => set({ showNotInstalled: v })} />
+            <Toggle checked={s.showNotInstalled} title="Show games you uninstalled" detail="They stay listed with their playtime." onchange={(v) => set({ showNotInstalled: v })} />
           </div>
+          <AccountsSettings />
           <div class="group">
             <span class="glabel">Your game folders</span>
             <p class="hint">Every folder inside these counts as a game.</p>

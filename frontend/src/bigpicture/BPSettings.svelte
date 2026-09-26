@@ -42,6 +42,7 @@
     { key: "openBigPictureOnController", title: "Open big picture when a controller connects", detail: "Switches over as soon as you pick one up.", kind: "toggle" },
     { key: "startInBigPicture", title: "Start in big picture", detail: "Skip the desktop window when WaterLauncher starts.", kind: "toggle" },
     { key: "psButton", title: "PS / Xbox button opens WaterLauncher", detail: "From other apps, and the overlay in games. Turn off Steam's guide-button shortcut to avoid both opening.", kind: "toggle" },
+    { key: "showOwned", title: "Show games you own that aren't installed", detail: "From the store accounts connected in desktop Settings.", kind: "toggle" },
     { key: "syncSavesBefore", title: "Sync saves before playing", detail: "With Syncer: saves come up to date from your other PCs first.", kind: "toggle" },
     { key: "backupSavesAfter", title: "Back up saves after playing", detail: "With Syncer: a backup runs when the game exits.", kind: "toggle" },
     { key: "closeWhilePlaying", title: "Close the interface while playing", detail: "Frees its memory. It comes back when the game exits.", kind: "toggle" },

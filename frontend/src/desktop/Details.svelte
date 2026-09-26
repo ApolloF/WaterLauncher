@@ -8,7 +8,7 @@
   import { pad } from "../lib/input.svelte";
   import { padExplain } from "../lib/route";
   import { savesSummary } from "../lib/saves";
-  import { sessionActive, type Saves } from "../lib/types";
+  import { sessionActive, storeName, type Saves } from "../lib/types";
   import AddonCards from "./AddonCards.svelte";
   import MatchDialog from "./MatchDialog.svelte";
 
@@ -83,6 +83,11 @@
   const other = $derived(sessionActive(lib.session) && !mine ? lib.session : null);
   let quitting = $state(false);
 
+  async function install() {
+    const ok = await lib.run(() => api.install(game.id).then(() => true));
+    if (ok) lib.toast(storeName(game) + " will install " + title(game));
+  }
+
   async function quit() {
     if (!quitting) {
       quitting = true;
@@ -142,6 +147,11 @@
         <button type="button" class="play" onclick={() => lib.play(game)} disabled={!!other} title={other ? `${other.title} is running` : undefined} style:--glow={m?.accent ?? "transparent"}>
           <Icon name="play" size={18} />
           <span>Play</span>
+        </button>
+      {:else if game.installUri}
+        <button type="button" class="play install" onclick={install}>
+          <Icon name="download" size={20} stroke={2} />
+          <span>Install with {storeName(game)}</span>
         </button>
       {:else}
         <button type="button" class="play" disabled>
