@@ -12,7 +12,7 @@
       { kind: "all", label: "All games", icon: "grid", count: c.all },
       { kind: "favorites", label: "Favorites", icon: "star", count: c.favorites },
       { kind: "recent", label: "Recently played", icon: "clock", count: c.recent },
-      { kind: "found", label: "Found on this PC", icon: "scan", count: c.found, accent: c.found > 0 },
+      { kind: "found", label: "New on this PC", icon: "scan", count: c.found, accent: c.found > 0 },
     ];
     if (lib.settings?.showNotInstalled) list.splice(1, 0, { kind: "notinstalled", label: "Not installed", icon: "cloudDown", count: c.notinstalled });
     if (c.hidden) list.push({ kind: "hidden", label: "Hidden", icon: "eyeOff", count: c.hidden });

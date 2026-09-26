@@ -16,8 +16,11 @@
     ),
   );
   let at = $state(0);
+  // Start over only when the pictures themselves change, not on every
+  // update of the game (playtime, favourite).
+  const chainKey = $derived(chain.join("|"));
   $effect(() => {
-    chain;
+    chainKey;
     at = 0;
   });
   const src = $derived(chain[at]);

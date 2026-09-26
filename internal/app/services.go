@@ -91,7 +91,7 @@ func (s *LibraryService) Rename(id int64, title string) (library.Game, error) {
 	})
 }
 
-// ConfirmMatch accepts the game's identity, so it leaves Found on this PC.
+// ConfirmMatch accepts the game's identity, so it no longer waits for a check in New on this PC.
 func (s *LibraryService) ConfirmMatch(id int64) (library.Game, error) {
 	return s.update(id, func(g *library.Game) { g.Confirmed, g.NeedsReview = true, false })
 }

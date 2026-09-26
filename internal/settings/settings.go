@@ -18,7 +18,7 @@ type Settings struct {
 	Folders          []string `json:"folders"`          // extra folders whose subfolders are games
 	AutoFolders      bool     `json:"autoFolders"`      // also look in common game folders on every drive
 	DetectUnofficial bool     `json:"detectUnofficial"` // recognise Steam emulators, cracks and repacks
-	ReviewUncertain  bool     `json:"reviewUncertain"`  // keep low-confidence matches in Found on this PC
+	ReviewUncertain  bool     `json:"reviewUncertain"`  // keep low-confidence matches in New on this PC for a check
 	ShowNotInstalled bool     `json:"showNotInstalled"` // list games that aren't installed (anymore)
 	ShowOwned        bool     `json:"showOwned"`        // list games connected store accounts own but aren't installed
 	OwnedGOG         bool     `json:"ownedGOG"`         // read GOG Galaxy's library for owned games
