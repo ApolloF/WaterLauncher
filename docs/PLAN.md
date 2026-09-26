@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **v0.1 to v0.7 released** as prereleases (2026-09-25 and 26). Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). **v1.0** (installer, auto-update, start with Windows, code signing) is next.
+Status: **v0.1 to v0.7 released** as prereleases (2026-09-25 and 26). Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). **v1.0** (installer, auto-update, start with Windows, signing support, and fixes from a final audit) is built on `feature/v1.0-release`; code signing itself waits for a certificate ([SIGNING.md](SIGNING.md)). Section 17 has the v1.0 details and what comes after.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
@@ -62,7 +62,7 @@ internal/
   syncer/                    pipe client (Syncer's launcher API)
   addons/                    manifest, host, permissions, JSON-RPC
   platform/                  DPAPI, known folders, foreground and full-screen checks
-  update/                    GitHub release check, SHA-256 verify
+  update/                    GitHub release check, verified download, installer or exe swap
 frontend/src/
   lib/                       api (plus a mock backend), focus engine, input intents, glyphs, sounds, stores
   shared/                    GameArt, Logo, LaunchSequence, QuickAccess, Toggle, OSK
@@ -188,7 +188,7 @@ Each phase ends with a working build, a GitHub prerelease and a check-in.
 | 5 | v0.5 | `gamekit` repo and Syncer PR (pipe API, `--api`), launcher client, save status, conflicts, backup after exit |
 | 6 | v0.6 | Add-on protocol, host and permissions UI; DLSS Updater `--addon` PR |
 | 7 | v0.7 | Owned-but-not-installed games from Steam, GOG and Epic (opt-in) |
-| 8 | v1.0 | NSIS installer, auto-update, start with Windows, code signing, docs, release |
+| 8 | v1.0 | NSIS installer, auto-update, start with Windows, code signing, docs, release (see section 17) |
 
 ## 13. Testing
 
@@ -224,3 +224,45 @@ Each phase ends with a working build, a GitHub prerelease and a check-in.
 - CI (`.github/workflows/build.yml`) builds and tests every push and PR on `windows-latest`. A `v*` tag publishes a prerelease with the exe, its SHA-256, and `docs/releases/<tag>.md` as notes.
 - Smoke test: a Wails v3 Svelte app built in 34 s into a 10.5 MB exe. At runtime the Go process used about 67 MB and WebView2 about 423 MB.
 - Installed later: SDL3 3.4.16 (phase 3, from the libsdl-org release, hash checked) and the .NET 8 SDK (phase 6).
+
+## 17. v1.0 and after
+
+**Built for v1.0**
+
+- **Installer** (`build/windows/nsis/project.nsi`): per-user (`%LOCALAPPDATA%\Programs\WaterLauncher`, no UAC), so updates never need elevation. It closes a running copy with `--quit`, remembers the install folder for updates, deletes only its own files on uninstall (the folder may have been picked by hand), removes the start-with-Windows entry, and asks before deleting the library and settings. `/relaunch` (and `/tray`) start WaterLauncher again after a silent update. About 7.5 MB with the WebView2 bootstrapper.
+- **Updates** (`internal/update`, `internal/app/updates.go`): the newest non-preview release from `api.github.com/…/releases/latest`. Downloads come only from below `github.com/ApolloF/WaterLauncher/releases/download/` (redirects limited to GitHub's download hosts), are checked against the release's `.sha256`, and, once builds are signed, against the running exe's Authenticode publisher. Installed copies run the installer silently; others swap their exe (a running exe can be renamed). Checked 90 s after start and every 12 h, never while a game runs. A downloaded update installs at the next start (not with `--play`), or at once with *Restart and update*. `pending.json` counts attempts, so an update that didn't take isn't retried on its own.
+- **Start with Windows**: `HKCU\…\Run\WaterLauncher = "<exe>" --tray`. Settings shows when Task Manager's switch turned it off, and the entry is repaired when WaterLauncher moved.
+- **Single instance**: a second start hands its arguments over before the library is opened. The mutex name follows Wails beta.26; recheck it when upgrading Wails.
+- **Signing**: `build/windows/sign.ps1` and the CI secrets `SIGN_PFX_BASE64`/`SIGN_PFX_PASSWORD`; unsigned until a certificate exists.
+- **CI**: builds the installer, signs when configured, publishes `v1+` tags without a suffix as full releases (`make_latest`), and runs the race detector when gcc is available.
+- **Checked by hand on this PC**: silent install to a folder with spaces, `--quit` with and without a running copy, an installer update from 1.0.0 to 1.0.1 started at sign-in (`--tray`) that relaunched in the tray and tidied up, an exe-swap update of a copy that wasn't installed (including the no-retry guard), and a silent uninstall that removed the files, shortcuts, Run entry and uninstall key while keeping the data.
+
+**Audit (2026-09-26)**, fixed in v1.0:
+
+| Area | Finding | Fix |
+|---|---|---|
+| Data safety | The save timer and quitting could write `library.json.tmp` at the same time and corrupt the library (it was then set aside and a fresh one started) | Saves serialized; the file loaded at start is kept as `library.json.bak` and used when the main file is damaged |
+| Data safety | Quitting mid-game lost up to a minute of playtime (`Launch.Close` didn't wait) | Close waits up to 3 s for the playtime hand-over |
+| Performance | The owned-games merge compared every owned game with every found game, under the write lock: 126 ms per scan with 3,500 games | Index by store id: 0.46 ms |
+| Performance | Every scan walked each shortcut's folder (up to 4,000 entries) and each game folder for its size: 550–800 ms repeat scans on this PC | Cached by folder modification time, and sizes for 6 h: 63 ms |
+| Performance | Each metadata result, favorite or playtime tick reloaded the whole library in the interface | `games:updated` carries just the changed games |
+| Idle cost | SDL was polled every 8 ms forever, with or without a controller (~400 ms CPU per 30 s idle) | 250 ms without a controller, 33 ms in games, 16/8 ms in use, not at all when off: too little to measure |
+| Idle cost | Scans, metadata and owned-games syncs ran during games | They wait until the game ends; memory is returned to Windows when the interface closes and after big batches |
+| Leaks | Art replaced by refreshes, and art of removed games, was never deleted | Unused art pruned once per start (a day's grace) |
+| Robustness | An add-on that stopped reading stdin blocked writes while holding the lock its reader needed (deadlock), and could hang shutdown | Separate write lock; the goodbye is sent in the background |
+| Robustness | The image decode limit of 50 megapixels allowed ~200 MB spikes | 24 megapixels |
+| Startup | A second instance (every `--play` shortcut) opened the library, settings and add-ons before handing over | Checked before anything is loaded |
+
+Checked and fine: no known vulnerabilities in Go modules (govulncheck) or npm packages (npm audit); the CSP injected into release builds; URL and host allowlists in `meta`, `owned` and `update`; DPAPI secrets never logged; the Syncer pipe owner check; add-on hash pinning; size-limited, fuzzed parsers; no shell anywhere.
+
+**Next (recommendations)**
+
+1. **Get a signing certificate** (SignPath Foundation is free for open source), then signature-required updates switch on by themselves. Also consider signing each release's checksums with an ed25519 key kept outside GitHub: today a compromised GitHub account could replace both an asset and its `.sha256`.
+2. **Memory while playing**: the Go core is ~75 MB private with the interface closed (goal < 50 MB). The game database index is ~15 MB live; the rest needs a heap profile (`pprof`) to attribute (SDL, Wails, runtime). An interned or on-disk index would help, and GOG's database could be read by pages instead of whole.
+3. **Scan cost per game**: emulator detection and exe picking still read each game folder on every scan (~5–30 ms per game), so with hundreds of games a full scan takes seconds. Cache them by folder and marker-file modification times, like `looksLikeGame` now.
+4. **Passive play tracking** of games started outside WaterLauncher: a process-start event subscription (WMI `Win32_ProcessStartTrace`) avoids polling while idle.
+5. **Tests**: Vitest for the focus engine and big picture navigation; a Playwright run of the mock interface at the two target sizes; an installer smoke test in CI (silent install to a temp folder, `--quit`, silent uninstall, as done by hand for v1.0).
+6. **Wails**: v3 is still beta; keep the pin, and when upgrading recheck the single-instance mutex name, event payloads and bindings.
+7. **Uninstall tidy-up**: offer to remove the non-Steam shortcuts WaterLauncher added to Steam (they're in a "WaterLauncher" collection).
+8. **Localisation**: the interface is English only, with strings inline in components. Extract them before adding languages.
+9. **Diagnostics**: panics in the core only reach the log; a *Copy diagnostics* button (log tail, versions, settings without secrets) would make bug reports easier.
