@@ -36,6 +36,7 @@ export const realApi: Api = {
   setStartWithWindows: (on) => SettingsService.SetStartWithWindows(on) as Promise<unknown> as Promise<Startup>,
 
   onLibraryChanged: (cb) => Events.On("library:changed", () => cb()),
+  onGamesUpdated: (cb) => Events.On("games:updated", (e) => cb((e.data ?? []) as unknown as Game[])),
   onScanState: (cb) => Events.On("scan:state", (e) => cb(e.data as unknown as ScanState)),
   onMetaState: (cb) => Events.On("meta:state", (e) => cb(e.data as unknown as MetaState)),
 

@@ -36,6 +36,8 @@ export interface Api {
   setStartWithWindows(on: boolean): Promise<Startup>;
 
   onLibraryChanged(cb: () => void): () => void;
+  /** Some games changed (metadata, a favorite, playtime); the rest didn't. */
+  onGamesUpdated(cb: (games: Game[]) => void): () => void;
   onScanState(cb: (s: ScanState) => void): () => void;
   onMetaState(cb: (s: MetaState) => void): () => void;
 

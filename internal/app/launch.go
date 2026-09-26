@@ -193,12 +193,12 @@ func (c *Core) plan(g library.Game) launch.Plan {
 			}
 			logx.Printf("play %q (%s)", title, used)
 			_, _ = c.Lib.Update(g.ID, func(x *library.Game) { x.LastPlayed = time.Now().Unix() })
-			c.emit(EventLibraryChanged, "update")
+			c.gamesChanged(g.ID)
 			return uint32(pid), used, nil
 		},
 		Played: func(secs int64) {
 			_, _ = c.Lib.Update(g.ID, func(x *library.Game) { x.Playtime += secs })
-			c.emit(EventLibraryChanged, "update")
+			c.gamesChanged(g.ID)
 		},
 		OnRun: func() {
 			c.shell.setTrayTooltip("WaterLauncher · playing " + title)

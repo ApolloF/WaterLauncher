@@ -2,8 +2,12 @@ package scan
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // strongFiles are files that (almost) only games ship, with the sign shown to the user.
@@ -64,11 +68,44 @@ var strongDirs = map[string]string{
 	"renpy":          "Ren'Py",
 }
 
+// gameLike remembers looksLikeGame's answers for this run of WaterLauncher.
+// A folder is looked at again when its own modification time changes
+// (files added or removed at its top), so later scans only stat it.
+var gameLike = struct {
+	sync.Mutex
+	m map[string]gameLikeEntry
+}{m: map[string]gameLikeEntry{}}
+
+type gameLikeEntry struct {
+	mod  time.Time
+	ok   bool
+	sign string
+}
+
 // looksLikeGame reports whether dir holds a game, and the telling sign.
 // With allowWeak, a folder with several weak signs and no application
 // markers also counts (for folders the user said hold games). Only the top
 // few levels are looked at, with a budget, so a huge folder stays cheap.
 func looksLikeGame(dir string, allowWeak bool) (bool, string) {
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
+		return false, ""
+	}
+	key := strconv.FormatBool(allowWeak) + "|" + strings.ToLower(filepath.Clean(dir))
+	gameLike.Lock()
+	e, ok := gameLike.m[key]
+	gameLike.Unlock()
+	if ok && e.mod.Equal(fi.ModTime()) {
+		return e.ok, e.sign
+	}
+	yes, sign := walkGameLike(dir, allowWeak)
+	gameLike.Lock()
+	gameLike.m[key] = gameLikeEntry{mod: fi.ModTime(), ok: yes, sign: sign}
+	gameLike.Unlock()
+	return yes, sign
+}
+
+func walkGameLike(dir string, allowWeak bool) (bool, string) {
 	root := filepath.Clean(dir)
 	depth0 := strings.Count(root, `\`)
 	sign := ""

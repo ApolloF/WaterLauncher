@@ -196,7 +196,7 @@ func (s *LibraryService) OpenFolder(id int64) error {
 func (s *LibraryService) update(id int64, fn func(*library.Game)) (library.Game, error) {
 	g, err := s.c.Lib.Update(id, fn)
 	if err == nil {
-		s.c.emit(EventLibraryChanged, "update")
+		s.c.gamesChanged(id)
 	}
 	return g, err
 }

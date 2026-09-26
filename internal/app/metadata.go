@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -46,6 +47,7 @@ type metaWorker struct {
 	state   MetaState
 	wake    chan struct{}
 	changed *time.Timer
+	dirty   map[int64]bool // games with new metadata the interface hasn't heard about
 }
 
 func newMetaWorker(c *Core) *metaWorker {
@@ -113,6 +115,10 @@ func (w *metaWorker) run(ctx context.Context) {
 	for {
 		id, ok := w.next()
 		if !ok {
+			if w.State().Running {
+				// A batch is done: decoding art grows the heap; give it back.
+				debug.FreeOSMemory()
+			}
 			w.setState(func(s *MetaState) { *s = MetaState{} })
 			select {
 			case <-ctx.Done():
@@ -120,6 +126,9 @@ func (w *metaWorker) run(ctx context.Context) {
 			case <-w.wake:
 				continue
 			}
+		}
+		if !w.c.waitIdle(ctx) {
+			return
 		}
 		w.setState(func(s *MetaState) { s.Running = true })
 		err := w.fetch(ctx, id)
@@ -191,22 +200,31 @@ func (w *metaWorker) fetch(ctx context.Context, id int64) error {
 		return err
 	}
 	_, err = w.c.Lib.Update(id, func(g *library.Game) { g.Meta = m })
-	w.libraryChanged()
+	w.gameChanged(id)
 	return err
 }
 
-// libraryChanged tells the interface to reload, at most a few times a second.
-func (w *metaWorker) libraryChanged() {
+// gameChanged tells the interface about new metadata, a few games at a
+// time at most a few times a second.
+func (w *metaWorker) gameChanged(id int64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.dirty == nil {
+		w.dirty = map[int64]bool{}
+	}
+	w.dirty[id] = true
 	if w.changed != nil {
 		return
 	}
 	w.changed = time.AfterFunc(600*time.Millisecond, func() {
 		w.mu.Lock()
-		w.changed = nil
+		ids := make([]int64, 0, len(w.dirty))
+		for id := range w.dirty {
+			ids = append(ids, id)
+		}
+		w.dirty, w.changed = nil, nil
 		w.mu.Unlock()
-		w.c.emit(EventLibraryChanged, "metadata")
+		w.c.gamesChanged(ids...)
 	})
 }
 

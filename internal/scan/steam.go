@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/ApolloF/WaterLauncher/internal/platform"
 	"github.com/ApolloF/gamekit/steam"
@@ -85,8 +87,38 @@ func SteamWatchDirs() []string {
 	return out
 }
 
-// dirSize totals file sizes below dir, stopping after limit entries.
+// sizes remembers folder sizes for a while: walking a big game folder on
+// every scan (they run on every install and every half hour) adds up.
+var sizes = struct {
+	sync.Mutex
+	m map[string]sizeEntry
+}{m: map[string]sizeEntry{}}
+
+type sizeEntry struct {
+	size int64
+	at   time.Time
+}
+
+const sizeMaxAge = 6 * time.Hour
+
+// dirSize totals file sizes below dir, stopping after limit entries. A size
+// worked out in the last few hours is reused.
 func dirSize(dir string, limit int) int64 {
+	key := strings.ToLower(filepath.Clean(dir))
+	sizes.Lock()
+	e, ok := sizes.m[key]
+	sizes.Unlock()
+	if ok && time.Since(e.at) < sizeMaxAge {
+		return e.size
+	}
+	total := walkSize(dir, limit)
+	sizes.Lock()
+	sizes.m[key] = sizeEntry{size: total, at: time.Now()}
+	sizes.Unlock()
+	return total
+}
+
+func walkSize(dir string, limit int) int64 {
 	var total int64
 	n := 0
 	_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {

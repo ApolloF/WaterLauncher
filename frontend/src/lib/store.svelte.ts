@@ -125,6 +125,7 @@ class LibraryStore {
 
   async init() {
     api.onLibraryChanged(() => void this.refresh());
+    api.onGamesUpdated((gs) => gs.forEach((g) => this.replace(g, true)));
     api.onScanState((s) => (this.scan = s));
     api.onMetaState((s) => (this.meta = s));
     api.launch.onSession((s) => (this.session = s));
@@ -178,10 +179,12 @@ class LibraryStore {
     return this.run(() => api.launch.play(g.id));
   }
 
-  /** Puts an updated game in place without waiting for a full refresh. */
-  replace(g: Game) {
+  /** Puts an updated game in place without waiting for a full refresh;
+   * with add, a game the list doesn't have yet joins it. */
+  replace(g: Game, add = false) {
     const i = this.games.findIndex((x) => x.id === g.id);
     if (i >= 0) this.games[i] = g;
+    else if (add) this.games.push(g);
   }
 
   async saveSettings(next: Settings) {

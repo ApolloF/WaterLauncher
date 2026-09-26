@@ -178,6 +178,9 @@ func (o *ownedState) loop(ctx context.Context) {
 	case <-time.After(20 * time.Second):
 	}
 	for {
+		if !o.c.waitIdle(ctx) {
+			return
+		}
 		o.sync(ctx)
 		select {
 		case <-ctx.Done():

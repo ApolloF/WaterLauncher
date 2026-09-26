@@ -321,6 +321,9 @@ export const mockApi: Api = {
     libListeners.add(cb);
     return () => libListeners.delete(cb);
   },
+  onGamesUpdated() {
+    return () => {};
+  },
   onScanState(cb) {
     scanListeners.add(cb);
     return () => scanListeners.delete(cb);
