@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"strings"
@@ -18,9 +19,13 @@ import (
 // MaxFile caps the size of a database (and its WAL) that is read.
 const MaxFile = 512 << 20
 
-// DB is a database loaded into memory.
+// DB is an open database. Pages are read from the file as they're needed,
+// so a large database costs little memory; the write-ahead log (small) is
+// read whole.
 type DB struct {
-	data     []byte
+	r        io.ReaderAt
+	size     int64     // bytes in the database file
+	closer   io.Closer // the file, for Close
 	pageSize int
 	usable   int
 	wal      map[uint32][]byte // page → newest committed copy in the WAL
@@ -34,24 +39,48 @@ type table struct {
 	rowid int // index of the INTEGER PRIMARY KEY column, -1 if none
 }
 
-// Open reads a database file (and its -wal file, when there is one).
+// Open opens a database file (and reads its -wal file, when there is one).
+// Close it when done.
 func Open(path string) (*DB, error) {
-	data, err := readCapped(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	db, err := parse(data)
+	fi, err := f.Stat()
 	if err != nil {
+		f.Close()
 		return nil, err
 	}
+	if fi.Size() > MaxFile {
+		f.Close()
+		return nil, errors.New("database too large")
+	}
+	db, err := newDB(f, fi.Size())
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	db.closer = f
 	if wal, err := readCapped(path + "-wal"); err == nil && len(wal) > 32 {
 		db.readWAL(wal)
 	}
 	if err := db.loadSchema(); err != nil {
+		f.Close()
 		return nil, err
 	}
 	return db, nil
 }
+
+// Close closes the database file.
+func (db *DB) Close() error {
+	if db.closer == nil {
+		return nil
+	}
+	return db.closer.Close()
+}
+
+// pages is how many pages the database file holds.
+func (db *DB) pages() int { return int(db.size / int64(db.pageSize)) }
 
 func readCapped(path string) ([]byte, error) {
 	fi, err := os.Stat(path)
@@ -64,8 +93,18 @@ func readCapped(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
-func parse(data []byte) (*DB, error) {
-	if len(data) < 100 || !bytes.HasPrefix(data, []byte("SQLite format 3\x00")) {
+// parse opens a database held in memory.
+func parse(data []byte) (*DB, error) { return newDB(bytes.NewReader(data), int64(len(data))) }
+
+func newDB(r io.ReaderAt, size int64) (*DB, error) {
+	data := make([]byte, 100)
+	if size < 100 {
+		return nil, errors.New("not an SQLite database")
+	}
+	if _, err := r.ReadAt(data, 0); err != nil {
+		return nil, err
+	}
+	if !bytes.HasPrefix(data, []byte("SQLite format 3\x00")) {
 		return nil, errors.New("not an SQLite database")
 	}
 	ps := int(binary.BigEndian.Uint16(data[16:]))
@@ -78,7 +117,7 @@ func parse(data []byte) (*DB, error) {
 	if enc := binary.BigEndian.Uint32(data[56:]); enc != 0 && enc != 1 {
 		return nil, errors.New("only UTF-8 databases are supported")
 	}
-	return &DB{data: data, pageSize: ps, usable: ps - int(data[20]), tables: map[string]table{}}, nil
+	return &DB{r: r, size: size, pageSize: ps, usable: ps - int(data[20]), tables: map[string]table{}}, nil
 }
 
 // readWAL keeps, for each page, its copy from the last committed
@@ -119,11 +158,15 @@ func (db *DB) page(n uint32) ([]byte, error) {
 	if p, ok := db.wal[n]; ok {
 		return p, nil
 	}
-	off := int(n-1) * db.pageSize
-	if off+db.pageSize > len(db.data) {
+	off := int64(n-1) * int64(db.pageSize)
+	if off+int64(db.pageSize) > db.size {
 		return nil, fmt.Errorf("page %d past the end", n)
 	}
-	return db.data[off : off+db.pageSize], nil
+	p := make([]byte, db.pageSize) // callers keep pages while reading others
+	if _, err := db.r.ReadAt(p, off); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // Rows returns every row of a table as column name → value (int64,
@@ -134,7 +177,7 @@ func (db *DB) Rows(name string) ([]map[string]any, error) {
 		return nil, fmt.Errorf("no table %s", name)
 	}
 	var out []map[string]any
-	db.visits = len(db.data)/db.pageSize + len(db.wal) + 1
+	db.visits = db.pages() + len(db.wal) + 1
 	err := db.walk(t.root, 0, func(rowid int64, rec []any) {
 		row := make(map[string]any, len(t.cols))
 		for i, c := range t.cols {
@@ -159,7 +202,7 @@ func (db *DB) HasTable(name string) bool {
 }
 
 func (db *DB) loadSchema() error {
-	db.visits = len(db.data)/db.pageSize + len(db.wal) + 1
+	db.visits = db.pages() + len(db.wal) + 1
 	return db.walk(1, 0, func(_ int64, rec []any) {
 		if len(rec) < 5 || rec[0] != "table" {
 			return
@@ -275,7 +318,7 @@ func (db *DB) payload(p []byte, off, size int) ([]byte, error) {
 	}
 	next := binary.BigEndian.Uint32(p[off+local:])
 	for hops := 0; len(out) < size; hops++ {
-		if next == 0 || hops > len(db.data)/db.pageSize+len(db.wal)+1 {
+		if next == 0 || hops > db.pages()+len(db.wal)+1 {
 			return nil, errors.New("broken overflow chain")
 		}
 		op, err := db.page(next)

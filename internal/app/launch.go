@@ -201,6 +201,7 @@ func (c *Core) plan(g library.Game) launch.Plan {
 			c.gamesChanged(g.ID)
 		},
 		OnRun: func() {
+			heapDiag("playing")
 			c.shell.setTrayTooltip("WaterLauncher · playing " + title)
 			cfg := c.Settings.Get()
 			if m := c.padManager(); m != nil {

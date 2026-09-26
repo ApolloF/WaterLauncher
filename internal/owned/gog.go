@@ -36,6 +36,7 @@ func GOG(dbPath string) ([]library.Owned, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer db.Close()
 	if !db.HasTable("LibraryReleases") || !db.HasTable("GamePieces") || !db.HasTable("GamePieceTypes") {
 		return nil, errors.New("GOG Galaxy's library has an unknown layout")
 	}

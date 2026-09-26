@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -39,15 +40,49 @@ type Entry struct {
 }
 
 // Manager loads the manifest index from cache and refreshes it weekly.
+// Only scans use the index (~15 MB in memory), so it's let go a couple of
+// minutes after the last use and read again (~50 ms) by the next scan.
 type Manager struct {
 	dir  string
 	mu   sync.Mutex
 	idx  *Index
+	n    int // titles in the index last loaded, kept when it's let go
 	busy bool
+	drop *time.Timer
+	keep time.Duration
 }
 
 // NewManager uses dir for the cached index (created on demand).
-func NewManager(dir string) *Manager { return &Manager{dir: dir} }
+func NewManager(dir string) *Manager { return &Manager{dir: dir, keep: 2 * time.Minute} }
+
+// Len is the number of titles in the game database (0 before it exists),
+// without loading it.
+func (m *Manager) Len() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.n
+}
+
+// usedLocked keeps the index a while longer. m.mu is held.
+func (m *Manager) usedLocked() {
+	if m.idx == nil {
+		return
+	}
+	m.n = m.idx.Len()
+	if m.drop == nil {
+		m.drop = time.AfterFunc(m.keep, m.release)
+	} else {
+		m.drop.Reset(m.keep)
+	}
+}
+
+// release lets go of the index until it's needed again.
+func (m *Manager) release() {
+	m.mu.Lock()
+	m.idx = nil
+	m.mu.Unlock()
+	debug.FreeOSMemory() // most of the heap was the index: give it back now
+}
 
 func (m *Manager) indexFile() string { return filepath.Join(m.dir, indexName) }
 func (m *Manager) etagFile() string  { return filepath.Join(m.dir, "manifest.etag") }
@@ -61,6 +96,7 @@ func (m *Manager) Index() *Index {
 			m.idx = build(es)
 		}
 	}
+	m.usedLocked()
 	return m.idx
 }
 
@@ -120,6 +156,7 @@ func (m *Manager) Refresh(ctx context.Context) (bool, error) {
 	}
 	m.mu.Lock()
 	m.idx = build(es)
+	m.usedLocked()
 	m.mu.Unlock()
 	return true, nil
 }
