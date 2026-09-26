@@ -20,12 +20,25 @@
   let screen = $state<Screen>("home");
   let qa = $state(false);
   let sheetId = $state<number | null>(null);
-  let launchId = $state<number | null>(null);
+  // The launch sequence shows for the current session until put away.
+  let hiddenSession = $state(-1);
   let focused = $state<Game | null>(null);
 
   const layout = $derived(lib.settings?.bigPictureLayout ?? "deck");
   const sheet = $derived(sheetId === null ? null : (lib.games.find((g) => g.id === sheetId) ?? null));
-  const launching = $derived(launchId === null ? null : (lib.games.find((g) => g.id === launchId) ?? null));
+  const session = $derived(lib.session);
+  const showLaunch = $derived(
+    !!session && session.id !== hiddenSession && session.phase !== "" && session.phase !== "cancelled" && (session.phase !== "ended" || session.startedAt || session.note),
+  );
+  const launchGame = $derived(session ? (lib.games.find((g) => g.id === session.gameId) ?? null) : null);
+  // A session that ended before this window opened (the interface was
+  // closed while playing) shows its summary once; older ones don't.
+  let initial = true;
+  $effect(() => {
+    if (!initial || !session) return;
+    initial = false;
+    if (session.phase === "ended" && session.startedAt && Date.now() / 1000 - session.startedAt - session.seconds > 60) hiddenSession = session.id;
+  });
   const found = $derived(lib.base.filter((g) => g.installed && (g.needsReview || (!g.initial && !g.lastPlayed && Date.now() / 1000 - g.addedAt < 7 * 86400))));
   const accent = $derived(accentOf(focused) ?? "oklch(0.8 0.12 205)");
   const lightHex = $derived(toHex(accent));
@@ -40,7 +53,7 @@
   const play = (g: Game) => {
     if (!g.installed) return feedback.error();
     sheetId = null;
-    launchId = g.id;
+    lib.play(g);
   };
   const info = (g: Game) => {
     sheetId = g.id;
@@ -118,8 +131,8 @@
       {#if qa}
         <QuickAccess light={lightHex} onclose={() => (qa = false)} onsettings={() => go("settings")} ondesktop={onexit} />
       {/if}
-      {#if launching}
-        <Launching game={launching} onclose={() => (launchId = null)} />
+      {#if showLaunch && session}
+        <Launching {session} game={launchGame} onclose={() => (hiddenSession = session.id)} />
       {/if}
     </div>
   {/snippet}

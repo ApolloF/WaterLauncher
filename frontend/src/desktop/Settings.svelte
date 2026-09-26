@@ -159,12 +159,17 @@
           <div class="group">
             <Toggle checked={s.openBigPictureOnController} title="Open big picture when a controller connects" detail="Switches over as soon as you pick one up." onchange={(v) => set({ openBigPictureOnController: v })} />
             <Toggle checked={s.startInBigPicture} title="Start in big picture" detail="Skip the desktop window when WaterLauncher starts." onchange={(v) => set({ startInBigPicture: v })} />
-            <Toggle checked={s.psButton} title="PS / Xbox button opens WaterLauncher" detail="Also from other apps. Turn off Steam's own guide-button shortcut to avoid both opening." onchange={(v) => set({ psButton: v })} />
+            <Toggle checked={s.psButton} title="PS / Xbox button opens WaterLauncher" detail="From other apps, and the overlay while you play. Turn off Steam's own guide-button shortcut to avoid both opening." onchange={(v) => set({ psButton: v })} />
             <Toggle checked={s.haptics} title="Haptics while browsing" detail="Light ticks as you move between games." onchange={(v) => set({ haptics: v })} />
             <Toggle checked={s.lightbar} title="Lightbar follows the game" detail="Tints the DualSense to the selected game's colour." onchange={(v) => set({ lightbar: v })} />
             <Toggle checked={s.sounds} title="Navigation sounds" detail="Soft clicks as you move." onchange={(v) => set({ sounds: v })} />
           </div>
           <p class="hint">Open big picture with the button in the sidebar, F11, or the PS / Xbox button.</p>
+          <div class="group">
+            <span class="glabel">While playing</span>
+            <Toggle checked={s.closeWhilePlaying} title="Close the interface while a game runs" detail="Frees the memory it uses (about 400 MB). It comes back when the game exits; the tray icon opens it sooner." onchange={(v) => set({ closeWhilePlaying: v })} />
+            <Toggle checked={s.padWhilePlaying === "listen"} title="Listen for the PS / Xbox button in games" detail="Opens the overlay. WaterLauncher only listens: it never writes to the controller or changes its mode while a game has it. Turn off to let go of the controller completely." onchange={(v) => set({ padWhilePlaying: v ? "listen" : "off" })} />
+          </div>
         {:else}
           <dl class="kv">
             <dt>Version</dt>

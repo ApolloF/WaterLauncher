@@ -1,0 +1,86 @@
+package platform
+
+import (
+	"errors"
+	"strings"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
+
+// Proc is one running process.
+type Proc struct {
+	PID, PPID uint32
+	Name      string // exe file name, as Windows lists it
+}
+
+// Processes lists the running processes.
+func Processes() ([]Proc, error) {
+	h, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer windows.CloseHandle(h)
+	var e windows.ProcessEntry32
+	e.Size = uint32(unsafe.Sizeof(e))
+	var out []Proc
+	for err = windows.Process32First(h, &e); err == nil; err = windows.Process32Next(h, &e) {
+		out = append(out, Proc{PID: e.ProcessID, PPID: e.ParentProcessID, Name: windows.UTF16ToString(e.ExeFile[:])})
+	}
+	if !errors.Is(err, windows.ERROR_NO_MORE_FILES) {
+		return out, err
+	}
+	return out, nil
+}
+
+// ProcessImage returns the full path of a process's exe and when it
+// started (a FILETIME, to tell a reused process id apart). It works for
+// elevated processes of the same user too.
+func ProcessImage(pid uint32) (path string, started uint64, err error) {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return "", 0, err
+	}
+	defer windows.CloseHandle(h)
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	n := uint32(len(buf))
+	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &n); err != nil {
+		return "", 0, err
+	}
+	var c, x, k, u windows.Filetime
+	if err := windows.GetProcessTimes(h, &c, &x, &k, &u); err == nil {
+		started = uint64(c.HighDateTime)<<32 | uint64(c.LowDateTime)
+	}
+	return windows.UTF16ToString(buf[:n]), started, nil
+}
+
+// ProcessRunning reports whether a process with this exe name runs.
+func ProcessRunning(name string) bool {
+	ps, _ := Processes()
+	for _, p := range ps {
+		if strings.EqualFold(p.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// EndProcess stops a process right away (like Task Manager's End task).
+// started must match, so a process id Windows handed out again is left alone.
+func EndProcess(pid uint32, started uint64) error {
+	h, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(h)
+	var c, x, k, u windows.Filetime
+	if started != 0 {
+		if err := windows.GetProcessTimes(h, &c, &x, &k, &u); err != nil {
+			return err
+		}
+		if uint64(c.HighDateTime)<<32|uint64(c.LowDateTime) != started {
+			return errors.New("process ended already")
+		}
+	}
+	return windows.TerminateProcess(h, 1)
+}

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ApolloF/WaterLauncher/internal/launch"
 	"github.com/ApolloF/WaterLauncher/internal/logx"
 	"github.com/ApolloF/WaterLauncher/internal/pad"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -44,6 +45,7 @@ func NewPadService(c *Core) *PadService { return &PadService{c: c} }
 // ServiceStartup starts reading controllers.
 func (s *PadService) ServiceStartup(context.Context, application.ServiceOptions) error {
 	s.mgr = pad.Start(s.onAction, s.onState)
+	s.c.pad.Store(s.mgr)
 	return nil
 }
 
@@ -56,14 +58,21 @@ func (s *PadService) ServiceShutdown() error {
 }
 
 func (s *PadService) onAction(action string, repeat bool) {
-	// The PS / Xbox button brings WaterLauncher forward in big picture,
-	// from wherever the user is.
-	if action == pad.Home && !repeat && s.c.Settings.Get().PSButton {
-		if w, ok := application.Get().Window.GetByName("main"); ok {
-			w.Restore()
-			w.Show()
-			w.Focus()
+	home := action == pad.Home && !repeat && s.c.Settings.Get().PSButton
+	// While a game runs the controller belongs to the game: actions only
+	// drive the overlay, which the PS / Xbox button opens and closes.
+	if s.c.Launch.Current().Phase == launch.Running {
+		if home {
+			s.c.shell.ToggleOverlay()
+		} else if s.c.shell.OverlayOpen() {
+			s.c.emit(EventOverlayAction, PadAction{Action: action, Repeat: repeat})
 		}
+		return
+	}
+	// Otherwise the PS / Xbox button brings WaterLauncher forward, from
+	// wherever the user is.
+	if home {
+		s.c.shell.OpenMain()
 	}
 	s.c.emit(EventPadAction, PadAction{Action: action, Repeat: repeat})
 }

@@ -13,20 +13,27 @@
     if (mode === "bigpicture") return;
     mode = "bigpicture";
     api.window.fullscreen(true);
+    api.launch.setUIMode(mode);
   }
   function exitBigPicture() {
     if (mode === "desktop") return;
     mode = "desktop";
     api.window.fullscreen(false);
+    api.launch.setUIMode(mode);
   }
+
+  // The window comes back in big picture after a game played from there.
+  const resumeBigPicture = new URLSearchParams(location.search).get("mode") === "bigpicture";
 
   lib
     .init()
     .then(async () => {
       Object.assign(pad, await api.pad.state());
-      if (lib.settings?.startInBigPicture) enterBigPicture();
+      if (resumeBigPicture || lib.settings?.startInBigPicture) enterBigPicture();
     })
     .catch((e) => (failed = errText(e)));
+
+  $effect(() => api.launch.onUIMode((m) => (m === "bigpicture" ? enterBigPicture() : exitBigPicture())));
 
   // Controller: in big picture every action goes to the screens; in desktop
   // mode the PS / Xbox button switches to big picture.

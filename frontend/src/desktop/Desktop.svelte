@@ -5,6 +5,7 @@
   import { lib, type Sort } from "../lib/store.svelte";
   import CoverGrid from "./CoverGrid.svelte";
   import Details from "./Details.svelte";
+  import LaunchPanel from "./LaunchPanel.svelte";
   import Settings from "./Settings.svelte";
   import Sidebar from "./Sidebar.svelte";
 
@@ -33,11 +34,9 @@
     { id: "playtime", label: "Playtime" },
   ];
 
-  async function play(id: number) {
+  function play(id: number) {
     const g = lib.games.find((x) => x.id === id);
-    if (!g?.installed) return;
-    const ok = await lib.run(() => api.play(id).then(() => true));
-    if (ok) lib.toast(`Starting ${g.customTitle || g.title}…`);
+    if (g?.installed) lib.play(g);
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -115,6 +114,7 @@
   </div>
 </div>
 
+<LaunchPanel />
 {#if settingsOpen}
   <Settings onclose={() => (settingsOpen = false)} />
 {/if}

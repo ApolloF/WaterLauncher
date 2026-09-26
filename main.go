@@ -5,12 +5,14 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
 
 	"github.com/ApolloF/WaterLauncher/internal/app"
 	"github.com/ApolloF/WaterLauncher/internal/logx"
 	"github.com/ApolloF/WaterLauncher/internal/meta"
 	"github.com/ApolloF/WaterLauncher/internal/platform"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:frontend/dist
@@ -26,13 +28,15 @@ func main() {
 		log.Fatal(err)
 	}
 	logx.Printf("WaterLauncher %s starting", version)
+	shell := app.NewShell(core)
+	launcher := app.NewLaunchService(core)
 
-	var main *application.WebviewWindow
 	wa := application.New(application.Options{
 		Name:        "WaterLauncher",
 		Description: "Game launcher that finds every game on your PC",
 		Services: []application.Service{
 			application.NewService(app.NewLibraryService(core)),
+			application.NewService(launcher),
 			application.NewService(app.NewSettingsService(core)),
 			application.NewService(app.NewPadService(core)),
 		},
@@ -42,31 +46,28 @@ func main() {
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "nl.apollof.waterlauncher",
-			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
-				if main != nil {
-					main.Restore()
-					main.Show()
-					main.Focus()
+			OnSecondInstanceLaunch: func(d application.SecondInstanceData) {
+				if !launcher.PlayFromArgs(d.Args) {
+					shell.OpenMain()
 				}
 			},
 		},
-		Windows: application.WindowsOptions{WebviewUserDataPath: platform.CacheDir("webview")},
-	})
-
-	main = wa.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             "main",
-		Title:            "WaterLauncher",
-		Width:            1440,
-		Height:           900,
-		MinWidth:         980,
-		MinHeight:        620,
-		Frameless:        true,
-		BackgroundColour: application.NewRGB(10, 14, 19),
-		URL:              "/",
-		Windows: application.WindowsWindow{
-			Theme: application.SystemDefault,
+		Windows: application.WindowsOptions{
+			WebviewUserDataPath: platform.CacheDir("webview"),
+			// The interface closes while a game runs; WaterLauncher keeps
+			// going in the tray. Closing the window yourself still quits.
+			DisableQuitOnLastWindowClosed: true,
 		},
 	})
+	// "--play <id>" starts a game straight away, without the interface.
+	if _, ok := app.PlayArg(os.Args[1:]); ok {
+		shell.StartHidden()
+		wa.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+			go launcher.PlayFromArgs(os.Args[1:])
+		})
+	} else {
+		shell.Start()
+	}
 
 	if err := wa.Run(); err != nil {
 		logx.Printf("run: %v", err)

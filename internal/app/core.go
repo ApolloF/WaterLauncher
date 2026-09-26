@@ -7,11 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ApolloF/WaterLauncher/internal/identify"
+	"github.com/ApolloF/WaterLauncher/internal/launch"
 	"github.com/ApolloF/WaterLauncher/internal/library"
 	"github.com/ApolloF/WaterLauncher/internal/logx"
+	"github.com/ApolloF/WaterLauncher/internal/pad"
 	"github.com/ApolloF/WaterLauncher/internal/platform"
 	"github.com/ApolloF/WaterLauncher/internal/scan"
 	"github.com/ApolloF/WaterLauncher/internal/settings"
@@ -47,6 +50,11 @@ type Core struct {
 	Lib      *library.Store
 	Settings *settings.Store
 	Manifest *identify.Manager
+	Launch   *launch.Manager
+
+	shell       *Shell
+	pad         atomic.Pointer[pad.Manager]
+	lastSession int64 // the last session whose end was handled
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -72,6 +80,7 @@ func NewCore(version string) (*Core, error) {
 		ctx:      ctx, cancel: cancel, pending: make(chan struct{}, 1),
 	}
 	c.meta = newMetaWorker(c)
+	c.Launch = launch.NewManager(c.onSession)
 	return c, nil
 }
 
@@ -111,6 +120,7 @@ func (c *Core) Start() {
 
 // Stop ends background work and saves the library.
 func (c *Core) Stop() {
+	c.Launch.Close()
 	c.cancel()
 	if c.watcher != nil {
 		_ = c.watcher.Close()
@@ -287,4 +297,14 @@ func (c *Core) watchLoop(w *fsnotify.Watcher) {
 			logx.Printf("watcher: %v", err)
 		}
 	}
+}
+
+func (c *Core) padManager() *pad.Manager { return c.pad.Load() }
+
+// padState is the controller in use (none when controllers are unavailable).
+func (c *Core) padState() pad.State {
+	if m := c.padManager(); m != nil {
+		return m.State()
+	}
+	return pad.State{Battery: -1}
 }

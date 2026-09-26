@@ -57,4 +57,15 @@ export interface Settings {
      * auto, playstation, xbox
      */
     "glyphs": string;
+
+    /**
+     * While playing
+     * close the interface while a game runs (frees its memory)
+     */
+    "closeWhilePlaying": boolean;
+
+    /**
+     * listen (PS button opens the overlay), off (release the controller)
+     */
+    "padWhilePlaying": string;
 }

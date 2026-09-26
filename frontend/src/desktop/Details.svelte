@@ -2,9 +2,12 @@
   import GameArt from "../components/GameArt.svelte";
   import Icon from "../components/Icon.svelte";
   import { api } from "../lib/api";
-  import { ago, bytes, playtime } from "../lib/format";
+  import { ago, bytes, clock, playtime } from "../lib/format";
   import { lib } from "../lib/store.svelte";
   import { lastPlayed, played, title, type Game } from "../lib/types";
+  import { pad } from "../lib/input.svelte";
+  import { padExplain } from "../lib/route";
+  import { sessionActive } from "../lib/types";
   import MatchDialog from "./MatchDialog.svelte";
 
   let { game }: { game: Game } = $props();
@@ -36,16 +39,7 @@
   });
 
   const padMode = $derived(game.padMode || "auto");
-  const dualSense = $derived(game.meta?.dualSense ?? "");
-  const padNote = $derived.by(() => {
-    if (padMode === "native") return "Always starts directly. The game handles the DualSense itself.";
-    if (padMode === "steam") return "Always starts through Steam Input, so the DualSense acts as an Xbox controller.";
-    if (dualSense === "yes") return "Auto: Steam lists DualSense support for this game, so it starts directly.";
-    if (game.padHint === "libScePad") return "Auto: the game ships Sony's DualSense library, so it starts directly.";
-    if (game.padHint === "SDL") return "Auto: the game uses SDL, which handles a DualSense itself, so it starts directly.";
-    if (dualSense === "dualshock") return "Auto: Steam lists DualShock support only; the game starts directly.";
-    return "Auto: no DualSense support known yet, so the game starts directly.";
-  });
+  const padNote = $derived(padExplain(game, pad).long);
 
   function startRename() {
     menuOpen = false;
@@ -60,9 +54,19 @@
     if (t && t !== title(game)) await lib.run(() => api.rename(game.id, t === game.title ? "" : t));
   }
 
-  async function play() {
-    const ok = await lib.run(() => api.play(game.id).then(() => true));
-    if (ok) lib.toast(`Starting ${title(game)}…`);
+  // The game's session, when it is being launched or played.
+  const mine = $derived(sessionActive(lib.session) && lib.session?.gameId === game.id ? lib.session : null);
+  const other = $derived(sessionActive(lib.session) && !mine ? lib.session : null);
+  let quitting = $state(false);
+
+  async function quit() {
+    if (!quitting) {
+      quitting = true;
+      setTimeout(() => (quitting = false), 4000);
+      return;
+    }
+    quitting = false;
+    await lib.run(() => api.launch.quitGame());
   }
 
   function onmenukey(e: KeyboardEvent) {
@@ -97,8 +101,21 @@
 
   <div class="body">
     <div class="actions">
-      {#if game.installed}
-        <button type="button" class="play" onclick={play} style:--glow={m?.accent ?? "transparent"}>
+      {#if mine?.phase === "running"}
+        <div class="play playing" style:--glow={m?.accent ?? "transparent"} role="status">
+          <span class="dot"></span>
+          <span>Playing · {clock(mine.seconds)}</span>
+        </div>
+        <button type="button" class="square quit" class:armed={quitting} aria-label={quitting ? "Click again to quit the game" : "Quit game"} title={quitting ? "Click again to quit. Unsaved progress is lost." : "Quit game"} onclick={quit}>
+          <Icon name="stop" size={18} />
+        </button>
+      {:else if mine}
+        <button type="button" class="play" disabled>
+          <span class="spinner"></span>
+          <span>{mine.phase === "finishing" ? "Finishing…" : "Starting…"}</span>
+        </button>
+      {:else if game.installed}
+        <button type="button" class="play" onclick={() => lib.play(game)} disabled={!!other} title={other ? `${other.title} is running` : undefined} style:--glow={m?.accent ?? "transparent"}>
           <Icon name="play" size={18} />
           <span>Play</span>
         </button>
@@ -331,6 +348,51 @@
   }
   .play:hover:not(:disabled) {
     filter: brightness(1.08);
+  }
+  .play:disabled {
+    opacity: 0.75;
+  }
+  .playing {
+    background: color-mix(in oklab, var(--accent) 16%, var(--surface-2));
+    color: var(--accent-text);
+    border: 1px solid color-mix(in oklab, var(--accent) 40%, transparent);
+    font-variant-numeric: tabular-nums;
+  }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2.5px solid currentColor;
+    border-right-color: transparent;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(1turn);
+    }
+  }
+  .square.quit.armed {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dot,
+    .spinner {
+      animation: none;
+    }
   }
   .square {
     width: 52px;
