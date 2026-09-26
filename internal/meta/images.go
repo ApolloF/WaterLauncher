@@ -29,10 +29,11 @@ import (
 type Kind string
 
 const (
-	Cover Kind = "cover" // portrait, 2:3
-	Hero  Kind = "hero"  // wide banner behind the details
-	Logo  Kind = "logo"  // transparent title logo
-	Icon  Kind = "icon"
+	Cover    Kind = "cover"    // portrait, 2:3
+	Hero     Kind = "hero"     // wide banner behind the details
+	Backdrop Kind = "backdrop" // 16:9, sharp enough to fill the big picture screen
+	Logo     Kind = "logo"     // transparent title logo
+	Icon     Kind = "icon"
 )
 
 const (
@@ -41,7 +42,13 @@ const (
 )
 
 // Largest stored size per kind; larger images are scaled down.
-var maxWidth = map[Kind]int{Cover: 600, Hero: 1920, Logo: 800, Icon: 128}
+var maxWidth = map[Kind]int{Cover: 600, Hero: 1920, Backdrop: 1920, Logo: 800, Icon: 128}
+
+// minBackdropWidth is the least a backdrop may have after cropping to
+// 16:9: anything smaller looks soft full screen, and the hero does as well.
+const minBackdropWidth = 1280
+
+var errTooSmall = errors.New("image too small for a backdrop")
 
 // ArtURL is the path the interface loads a stored image from.
 const artPrefix = "/art/"
@@ -65,6 +72,11 @@ func (c *Client) saveImage(ctx context.Context, src string, kind Kind) (string, 
 	img, _, err := image.Decode(bytes.NewReader(b))
 	if err != nil {
 		return "", nil, err
+	}
+	if kind == Backdrop {
+		if img = crop16x9(img); img.Bounds().Dx() < minBackdropWidth {
+			return "", nil, errTooSmall
+		}
 	}
 	img = fit(img, maxWidth[kind])
 
@@ -129,6 +141,25 @@ func cropCover(img image.Image) image.Image {
 	x := b.Min.X + (b.Dx()-w)/2
 	sub := image.NewNRGBA(image.Rect(0, 0, w, b.Dy()))
 	draw.Draw(sub, sub.Bounds(), img, image.Point{X: x, Y: b.Min.Y}, draw.Src)
+	return sub
+}
+
+// crop16x9 cuts the middle 16:9 out of an image: the sides of a wide
+// banner, or the top and bottom of a 4:3 screenshot.
+func crop16x9(img image.Image) image.Image {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if cw := h * 16 / 9; cw < w {
+		w = cw
+	} else if ch := w * 9 / 16; ch < h {
+		h = ch
+	}
+	if w == b.Dx() && h == b.Dy() {
+		return img
+	}
+	x, y := b.Min.X+(b.Dx()-w)/2, b.Min.Y+(b.Dy()-h)/2
+	sub := image.NewNRGBA(image.Rect(0, 0, w, h))
+	draw.Draw(sub, sub.Bounds(), img, image.Point{X: x, Y: y}, draw.Src)
 	return sub
 }
 

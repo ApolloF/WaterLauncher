@@ -4,11 +4,13 @@
   import GameArt from "../components/GameArt.svelte";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
+  import { api } from "../lib/api";
   import { metaLine, padSummary, recentFirst } from "../lib/bp";
   import { bytes } from "../lib/format";
-  import { feedback, pad, useInput } from "../lib/input.svelte";
+  import { feedback, pad, useInput, type Intent } from "../lib/input.svelte";
+  import { savesSummary } from "../lib/saves";
   import { isFresh, lib } from "../lib/store.svelte";
-  import { title, type Game } from "../lib/types";
+  import { title, type Game, type Saves } from "../lib/types";
   import Hints from "./Hints.svelte";
 
   type Props = {
@@ -41,8 +43,106 @@
     if (g && heroes[heroes.length - 1]?.id !== g.id) heroes = [...heroes.filter((h) => h.id !== g.id).slice(-1), g];
   });
 
+  // Details: the stick moves between the buttons and the cards, a card
+  // opens in place, and L1 / R1 change the game.
+  type Focus = "play" | "fav" | "hide" | Card;
+  type Card = "about" | "pad" | "copy";
+  const rowA: Focus[] = ["play", "fav", "hide"];
+  const rowB: Card[] = ["about", "pad", "copy"];
+  let focus = $state<Focus>("play");
+  let lastCard = $state<Card>("about");
+  let open = $state<Card | null>(null);
+  const modes = ["", "native", "steam"] as const;
+  const modeInfo = [
+    { label: "Auto", text: "WaterLauncher decides from what the game supports." },
+    { label: "Native", text: "Always starts directly. The game handles the controller itself." },
+    { label: "Steam Input", text: "Always starts through Steam Input, so a DualSense acts as an Xbox controller." },
+  ];
+  let pick = $state(0);
+  const choosable = $derived(!!g && !g.launchUri);
+  // The game can go away underneath (uninstalled, list refreshed).
+  $effect(() => {
+    if (details && !g) ((details = false), (open = null));
+  });
+
+  function showDetails(on: boolean) {
+    details = on;
+    focus = "play";
+    open = null;
+    feedback.move();
+  }
+  function switchGame(d: -1 | 1) {
+    const j = i + d;
+    if (j < 0 || j >= games.length) return;
+    i = j;
+    open = null;
+    feedback.move();
+  }
+  function press(f: Focus) {
+    if (!g) return;
+    focus = f;
+    if (f === "play") return p.onplay(g);
+    if (f === "hide") return showDetails(false);
+    feedback.confirm();
+    if (f === "fav") {
+      const game = g;
+      lib.run(() => api.setFavorite(game.id, !game.favorite));
+    } else {
+      lastCard = f;
+      pick = Math.max(0, modes.indexOf((g.padMode ?? "") as (typeof modes)[number]));
+      open = f;
+    }
+  }
+  function choose(k: number) {
+    if (!g) return;
+    const game = g;
+    if (modes[k] !== (game.padMode ?? "")) lib.run(() => api.setPadMode(game.id, modes[k]));
+    feedback.confirm();
+    open = null;
+  }
+
+  function detailsInput(intent: Intent): boolean | void {
+    if (intent === "lb" || intent === "rb") return switchGame(intent === "lb" ? -1 : 1);
+    if (open) {
+      if (intent === "back" || intent === "info") ((open = null), feedback.move());
+      else if (intent === "confirm") open === "pad" && choosable ? choose(pick) : ((open = null), feedback.move());
+      else if (open === "pad" && choosable && (intent === "left" || intent === "right")) {
+        const k = Math.max(0, Math.min(modes.length - 1, pick + (intent === "left" ? -1 : 1)));
+        if (k !== pick) ((pick = k), feedback.move());
+      } else if (intent === "menu" || intent === "home" || intent === "view") return false;
+      return;
+    }
+    const row: Focus[] = rowB.includes(focus as Card) ? rowB : rowA;
+    const at = row.indexOf(focus);
+    switch (intent) {
+      case "left":
+      case "right": {
+        const k = at + (intent === "left" ? -1 : 1);
+        if (k >= 0 && k < row.length) ((focus = row[k]), feedback.move());
+        return;
+      }
+      case "down":
+        if (row === rowA) ((focus = lastCard), feedback.move());
+        return;
+      case "up":
+        if (row === rowB) {
+          lastCard = focus as Card;
+          focus = "play";
+          feedback.move();
+        } else showDetails(false);
+        return;
+      case "confirm":
+        return press(focus);
+      case "back":
+      case "info":
+        return showDetails(false);
+    }
+    return false;
+  }
+
   $effect(() =>
     useInput((intent) => {
+      if (details) return detailsInput(intent);
       switch (intent) {
         case "left":
           if (i > 0) ((i -= 1), feedback.move());
@@ -50,21 +150,12 @@
         case "right":
           if (i < n - 1) ((i += 1), feedback.move());
           return;
+        case "lb":
+        case "rb":
+          return switchGame(intent === "lb" ? -1 : 1);
         case "down":
-          if (g && !details) ((details = true), feedback.move());
-          return;
-        case "up":
-          if (details) ((details = false), feedback.move());
-          return;
-        case "back":
-          if (details) {
-            details = false;
-            feedback.move();
-            return;
-          }
-          return false;
         case "info":
-          if (g) ((details = !details), feedback.move());
+          if (g) showDetails(true);
           return;
         case "confirm":
           if (g) p.onplay(g);
@@ -74,6 +165,20 @@
       return false;
     }),
   );
+
+  let saves = $state<Saves | null>(null);
+  const savesInfo = $derived(savesSummary(saves));
+  $effect(() => {
+    const game = open === "copy" ? g : null;
+    saves = null;
+    if (!game?.installed) return;
+    let live = true;
+    api.saves
+      .get(game.id)
+      .then((s) => live && (saves = s))
+      .catch(() => {});
+    return () => (live = false);
+  });
 
   const TILE = 172;
   const GAP = 20;
@@ -99,7 +204,7 @@
 <div class="console">
   <div class="heroes">
     {#each heroes as h (h.id)}
-      <div class="hero" class:show={h.id === g?.id}><GameArt game={h} kind="hero" /></div>
+      <div class="hero" class:show={h.id === g?.id}><GameArt game={h} kind="backdrop" /></div>
     {/each}
   </div>
   <div class="scrim-l"></div>
@@ -135,7 +240,7 @@
     </div>
 
     {#if g}
-      <div class="info">
+      <div class="info" class:away={open}>
         <span class="pill">{g.sourceLabel}</span>
         {#if g.meta?.logo && !logoFailed}
           <img class="logo" src={g.meta.logo} alt={title(g)} onerror={() => (logoFailed = true)} />
@@ -149,36 +254,87 @@
           {#if g.needsReview}<span class="chip warn"><Icon name="warn" size={20} />Needs a check</span>{/if}
         </div>
         <div class="buttons">
-          <button type="button" class="play" onclick={() => p.onplay(g)}>
+          <button type="button" class="play" class:on={details && focus === "play"} onclick={() => press("play")}>
             <span class="pic"><Icon name="play" size={22} /></span>
             Play
           </button>
-          <button type="button" class="round" aria-label="Details" onclick={() => (details = !details)}><Icon name="info" size={30} stroke={1.8} /></button>
+          {#if details}
+            <button type="button" class="round" class:on={focus === "fav"} class:fav={g.favorite} aria-label={g.favorite ? "Remove from favorites" : "Add to favorites"} onclick={() => press("fav")}>
+              <Icon name="star" size={30} stroke={1.8} />
+            </button>
+          {/if}
+          <button type="button" class="round" class:on={details && focus === "hide"} aria-label={details ? "Hide details" : "Details"} onclick={() => (details ? press("hide") : showDetails(true))}>
+            <Icon name={details ? "chevronDown" : "info"} size={30} stroke={1.8} />
+          </button>
         </div>
       </div>
 
-      <div class="cards" class:show={details}>
-        <div class="card">
-          <div class="ch"><Icon name="info" size={22} stroke={1.8} /><span>About</span></div>
-          <div class="big">{g.meta?.developers?.[0] ?? g.sourceLabel}{g.meta?.releaseYear ? ` · ${g.meta.releaseYear}` : ""}</div>
-          <p>{g.meta?.description ?? "No store description for this game."}</p>
-        </div>
-        <div class="card">
-          <div class="ch"><Icon name="pad" size={24} stroke={1.8} /><span>Controller</span></div>
-          <div class="big">{padSummary(g).short}</div>
-          <p>{padSummary(g).long}</p>
-        </div>
-        <div class="card">
-          <div class="ch"><Icon name="scan" size={22} stroke={1.8} /><span>This copy</span></div>
-          <dl>
-            <dt>Found</dt>
-            <dd>{g.how}</dd>
-            <dt>Identified</dt>
-            <dd>{g.matchHow}</dd>
-            {#if g.sizeBytes}<dt>Size</dt><dd>{bytes(g.sizeBytes)}</dd>{/if}
-          </dl>
-        </div>
+      <div class="cards" class:show={details} class:away={open}>
+        <button type="button" class="card" class:on={details && focus === "about"} tabindex={details ? 0 : -1} onclick={() => press("about")}>
+          <span class="ch"><Icon name="info" size={22} stroke={1.8} /><span>About</span></span>
+          <span class="big">{g.meta?.developers?.[0] ?? g.sourceLabel}{g.meta?.releaseYear ? ` · ${g.meta.releaseYear}` : ""}</span>
+          <span class="p">{g.meta?.description ?? "No store description for this game."}</span>
+        </button>
+        <button type="button" class="card" class:on={details && focus === "pad"} tabindex={details ? 0 : -1} onclick={() => press("pad")}>
+          <span class="ch"><Icon name="pad" size={24} stroke={1.8} /><span>Controller</span></span>
+          <span class="big">{padSummary(g).short}</span>
+          <span class="p">{padSummary(g).long}</span>
+        </button>
+        <button type="button" class="card" class:on={details && focus === "copy"} tabindex={details ? 0 : -1} onclick={() => press("copy")}>
+          <span class="ch"><Icon name="scan" size={22} stroke={1.8} /><span>This copy</span></span>
+          <span class="dl">
+            <span class="dt">Found</span>
+            <span>{g.how}</span>
+            <span class="dt">Identified</span>
+            <span>{g.matchHow}</span>
+            {#if g.sizeBytes}<span class="dt">Size</span><span>{bytes(g.sizeBytes)}</span>{/if}
+          </span>
+        </button>
       </div>
+
+      {#if open}
+        <div class="expanded" role="dialog" aria-label={open === "about" ? "About" : open === "pad" ? "Controller" : "This copy"}>
+          <div class="eh">
+            {#if open === "about"}<Icon name="info" size={24} stroke={1.8} /><span>About</span>
+            {:else if open === "pad"}<Icon name="pad" size={26} stroke={1.8} /><span>Controller</span>
+            {:else}<Icon name="scan" size={24} stroke={1.8} /><span>This copy</span>{/if}
+            <span class="grow"></span>
+            <button type="button" class="x" aria-label="Close" onclick={() => (open = null)}><Icon name="close" size={24} /></button>
+          </div>
+          {#if open === "about"}
+            <div class="big">{g.meta?.developers?.join(", ") || g.sourceLabel}{g.meta?.releaseYear ? ` · ${g.meta.releaseYear}` : ""}</div>
+            <p class="full">{g.meta?.description ?? "No store description for this game."}</p>
+            <dl>
+              {#if g.meta?.genres?.length}<dt>Genres</dt><dd>{g.meta.genres.join(", ")}</dd>{/if}
+              {#if g.meta?.publishers?.length}<dt>Publisher</dt><dd>{g.meta.publishers.join(", ")}</dd>{/if}
+              {#if g.meta?.releaseDate}<dt>Released</dt><dd>{g.meta.releaseDate}</dd>{/if}
+              <dt>Played</dt><dd>{metaLine(g)}</dd>
+            </dl>
+          {:else if open === "pad"}
+            <p class="full">{padSummary(g).long}</p>
+            {#if choosable}
+              <div class="modes">
+                {#each modeInfo as m, k (m.label)}
+                  <button type="button" class="mode" class:on={pick === k} class:current={modes[k] === (g.padMode ?? "")} onclick={() => choose(k)}>
+                    <span class="ml">{m.label}{#if modes[k] === (g.padMode ?? "")}<span class="cur">Current</span>{/if}</span>
+                    <span class="mt">{m.text}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          {:else}
+            <dl>
+              <dt>Found</dt><dd>{g.how}</dd>
+              <dt>Identified</dt><dd>{g.matchHow}</dd>
+              <dt>Source</dt><dd>{g.sourceLabel}</dd>
+              {#if g.sizeBytes}<dt>Size</dt><dd>{bytes(g.sizeBytes)}</dd>{/if}
+              {#if g.dir}<dt>Folder</dt><dd class="path">{g.dir}</dd>{/if}
+              {#if g.exe}<dt>Program</dt><dd class="path">{g.exe}</dd>{/if}
+              {#if savesInfo && saves?.installed}<dt>Saves</dt><dd class:warn={savesInfo.tone === "warn"}>{savesInfo.text}</dd>{/if}
+            </dl>
+          {/if}
+        </div>
+      {/if}
     {/if}
   </div>
 
@@ -186,8 +342,16 @@
     <Hints
       hints={details
         ? [
-            { button: "confirm", label: "Play" },
-            { button: "back", label: "Back" },
+            ...(open && !(open === "pad" && choosable)
+              ? []
+              : [
+                  {
+                    button: "confirm" as const,
+                    label: open ? "Choose" : focus === "play" ? "Play" : focus === "fav" ? (g?.favorite ? "Remove favorite" : "Add to favorites") : focus === "hide" ? "Hide details" : "Open",
+                  },
+                ]),
+            { button: "lb", also: "rb", label: "Switch game" },
+            { button: "back", label: open ? "Close" : "Back" },
           ]
         : [
             { button: "confirm", label: g ? "Play" : "Open" },
@@ -204,6 +368,7 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
+    isolation: isolate;
     background: #06080b;
     color: #f3f5f7;
   }
@@ -376,6 +541,10 @@
     display: flex;
     flex-direction: column;
     gap: 22px;
+    transition: opacity 0.3s;
+  }
+  .info.away {
+    opacity: 0;
   }
   .pill {
     width: fit-content;
@@ -464,6 +633,19 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: box-shadow 0.2s;
+  }
+  .round.fav {
+    color: #ffd28a;
+  }
+  .round.fav :global(svg) {
+    fill: currentColor;
+  }
+  .play.on,
+  .round.on {
+    box-shadow:
+      0 0 0 4px #06080b,
+      0 0 0 7px #f3f5f7;
   }
   .cards {
     position: absolute;
@@ -479,16 +661,32 @@
   .cards.show {
     opacity: 1;
   }
+  .cards.show.away {
+    opacity: 0;
+    transition: opacity 0.25s;
+  }
   .card {
     height: 300px;
     padding: 28px;
     border-radius: 28px;
     background: rgba(14, 18, 24, 0.74);
     border: 1px solid rgba(255, 255, 255, 0.09);
+    color: inherit;
+    font: inherit;
+    text-align: left;
     display: flex;
     flex-direction: column;
     gap: 10px;
     overflow: hidden;
+    transition:
+      box-shadow 0.2s,
+      transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .card.on {
+    box-shadow:
+      0 0 0 4px #f3f5f7,
+      0 20px 50px rgba(0, 0, 0, 0.45);
+    transform: translateY(-4px);
   }
   .ch {
     display: flex;
@@ -502,8 +700,7 @@
     font-size: 30px;
     font-weight: 800;
   }
-  .card p {
-    margin: 0;
+  .p {
     font-size: 18px;
     line-height: 1.45;
     color: rgba(243, 245, 247, 0.78);
@@ -513,18 +710,141 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  dl {
+  dl,
+  .dl {
     display: grid;
     grid-template-columns: 120px minmax(0, 1fr);
     gap: 9px 12px;
     margin: 0;
     font-size: 17px;
   }
-  dt {
+  dt,
+  .dt {
     color: rgba(243, 245, 247, 0.6);
   }
   dd {
     margin: 0;
+  }
+  dd.warn {
+    color: #ffd28a;
+  }
+  .path {
+    overflow-wrap: anywhere;
+  }
+  /* A card opened in place: it grows over the details it came from. */
+  .expanded {
+    position: absolute;
+    left: 96px;
+    right: 96px;
+    /* Bottom-aligned with the cards (top 950px + 300px), growing upwards. */
+    bottom: calc(100% - 1250px);
+    min-height: 300px;
+    max-height: 640px;
+    padding: 34px 40px;
+    border-radius: 32px;
+    background: rgba(14, 18, 24, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(24px);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    overflow: hidden;
+    transform-origin: 50% 100%;
+    animation: grow 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  @keyframes grow {
+    from {
+      opacity: 0;
+      transform: translateY(40px) scale(0.97);
+    }
+  }
+  .eh {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 22px;
+    font-weight: 700;
+    color: rgba(243, 245, 247, 0.85);
+  }
+  .x {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: transparent;
+    color: #f3f5f7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .full {
+    margin: 0;
+    max-width: 1300px;
+    font-size: 22px;
+    line-height: 1.5;
+    color: rgba(243, 245, 247, 0.84);
+    display: -webkit-box;
+    -webkit-line-clamp: 8;
+    line-clamp: 8;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .expanded dl {
+    grid-template-columns: 170px minmax(0, 1fr);
+    gap: 12px 18px;
+    font-size: 20px;
+  }
+  .modes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+    margin-top: 8px;
+  }
+  .mode {
+    min-height: 170px;
+    padding: 24px 26px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.05);
+    color: #f3f5f7;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition:
+      box-shadow 0.2s,
+      background 0.2s;
+  }
+  .mode.current {
+    background: color-mix(in oklab, var(--accent-game) 16%, rgba(255, 255, 255, 0.05));
+  }
+  .mode.on {
+    box-shadow:
+      0 0 0 4px #06080b,
+      0 0 0 7px #f3f5f7;
+  }
+  .ml {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 26px;
+    font-weight: 800;
+  }
+  .cur {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #f3f5f7;
+    color: #06080b;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .mt {
+    font-size: 18px;
+    line-height: 1.45;
+    color: rgba(243, 245, 247, 0.75);
   }
   .hints {
     position: absolute;

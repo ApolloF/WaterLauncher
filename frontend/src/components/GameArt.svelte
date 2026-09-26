@@ -1,14 +1,17 @@
 <script lang="ts">
   // A game's picture: downloaded art when there is some, otherwise the
   // generated landscape. `kind` picks which picture (cover is portrait,
-  // hero is wide).
+  // hero is wide, backdrop is 16:9 and sharp enough to fill the screen).
   import { artFor } from "../lib/art";
   import type { Game } from "../lib/types";
 
-  let { game, kind = "cover" }: { game: Game; kind?: "cover" | "hero" } = $props();
+  let { game, kind = "cover" }: { game: Game; kind?: "cover" | "hero" | "backdrop" } = $props();
 
-  // A hero banner falls back to the cover, which is better than nothing.
-  const src = $derived(kind === "cover" ? game.meta?.cover : (game.meta?.hero ?? game.meta?.cover));
+  // A backdrop falls back to the hero, and a hero to the cover, which is
+  // better than nothing.
+  const src = $derived(
+    kind === "cover" ? game.meta?.cover : ((kind === "backdrop" ? game.meta?.backdrop : undefined) ?? game.meta?.hero ?? game.meta?.cover),
+  );
   const a = $derived(artFor(game.key));
   let failed = $state(false);
   $effect(() => {

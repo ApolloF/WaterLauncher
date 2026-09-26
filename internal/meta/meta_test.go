@@ -61,6 +61,18 @@ func TestCropCoverAndFit(t *testing.T) {
 	}
 }
 
+func TestCrop16x9(t *testing.T) {
+	for _, tc := range []struct{ w, h, cw, ch int }{
+		{3840, 1240, 2204, 1240}, // Steam's large hero: the middle
+		{1024, 768, 1024, 576},   // a 4:3 screenshot: top and bottom
+		{1920, 1080, 1920, 1080}, // already 16:9
+	} {
+		if b := crop16x9(solid(tc.w, tc.h, color.White)).Bounds(); b.Dx() != tc.cw || b.Dy() != tc.ch {
+			t.Errorf("crop16x9(%dx%d) = %v, want %dx%d", tc.w, tc.h, b, tc.cw, tc.ch)
+		}
+	}
+}
+
 func TestPlainText(t *testing.T) {
 	if got := plainText(`<p>Hello &amp; <b>welcome</b></p><br>to the  game`); got != "Hello & welcome to the game" {
 		t.Errorf("plainText = %q", got)
@@ -104,8 +116,8 @@ func TestRealFetch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("%d: cover=%s hero=%s logo=%s accent=%s dualsense=%q year=%d genres=%v dev=%v\n  %s", id, m.Cover, m.Hero, m.Logo, m.Accent, m.DualSense, m.ReleaseYear, m.Genres, m.Developers, m.Description)
-		if m.Cover == "" || m.Hero == "" {
+		t.Logf("%d: cover=%s hero=%s backdrop=%s logo=%s accent=%s dualsense=%q year=%d genres=%v dev=%v\n  %s", id, m.Cover, m.Hero, m.Backdrop, m.Logo, m.Accent, m.DualSense, m.ReleaseYear, m.Genres, m.Developers, m.Description)
+		if m.Cover == "" || m.Hero == "" || m.Backdrop == "" {
 			t.Errorf("%d: missing art", id)
 		}
 	}

@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"image"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/ApolloF/WaterLauncher/internal/library"
 )
+
+// Version marks what Fetch gathers; metadata from an older version is
+// fetched again (2: backdrops).
+const Version = 2
 
 // Request says which game to fetch metadata for.
 type Request struct {
@@ -22,8 +27,8 @@ type Request struct {
 // left empty; an error means nothing at all could be fetched (and is
 // ErrRateLimited when the caller should back off).
 func (c *Client) Fetch(ctx context.Context, r Request) (*library.Meta, error) {
-	m := &library.Meta{FetchedAt: time.Now().Unix()}
-	var urls struct{ cover, hero, logo, icon []string }
+	m := &library.Meta{FetchedAt: time.Now().Unix(), Version: Version}
+	var urls struct{ cover, hero, backdrop, logo, icon []string }
 	var errs []error
 	found := false
 
@@ -51,6 +56,13 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*library.Meta, error) {
 			}
 			if d.HeaderImage != "" {
 				urls.hero = append(urls.hero, d.HeaderImage)
+			}
+			// The first screenshots, picked by the developer, make a sharp
+			// backdrop that isn't the same picture as the game's tile.
+			for _, s := range d.Screenshots[:min(2, len(d.Screenshots))] {
+				if s.Full != "" {
+					urls.backdrop = append(urls.backdrop, s.Full)
+				}
 			}
 		} else {
 			errs = append(errs, err)
@@ -128,6 +140,12 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*library.Meta, error) {
 	var heroImg, coverImg image.Image
 	m.Cover, coverImg = c.firstImage(ctx, urls.cover, Cover)
 	m.Hero, heroImg = c.firstImage(ctx, urls.hero, Hero)
+	// Failing screenshots, the middle of a large hero (Steam's 3840-wide
+	// one) still fills the screen sharply; a small one is left to the hero.
+	if len(urls.hero) > 0 {
+		urls.backdrop = append(urls.backdrop, urls.hero[0])
+	}
+	m.Backdrop, _ = c.firstImage(ctx, urls.backdrop, Backdrop)
 	m.Logo, _ = c.firstImage(ctx, urls.logo, Logo)
 	m.Icon, _ = c.firstImage(ctx, urls.icon, Icon)
 	if m.Cover == "" && heroImg != nil {
@@ -167,6 +185,11 @@ func keepOverrides(m, old *library.Meta) {
 			m.Cover = old.Cover
 		case "hero":
 			m.Hero = old.Hero
+			if !slices.Contains(old.ArtOverrides, "backdrop") {
+				m.Backdrop = "" // the user's hero, not a screenshot, behind the game
+			}
+		case "backdrop":
+			m.Backdrop = old.Backdrop
 		case "logo":
 			m.Logo = old.Logo
 		}

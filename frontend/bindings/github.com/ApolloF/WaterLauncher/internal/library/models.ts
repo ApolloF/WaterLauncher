@@ -140,6 +140,11 @@ export interface Meta {
      */
     "cover"?: string;
     "hero"?: string;
+
+    /**
+     * 16:9 full-screen background
+     */
+    "backdrop"?: string;
     "logo"?: string;
     "icon"?: string;
 
@@ -153,5 +158,10 @@ export interface Meta {
      * where the metadata came from
      */
     "source"?: string;
+
+    /**
+     * meta.Version that fetched it
+     */
+    "version"?: number;
     "artOverrides"?: string[] | null;
 }

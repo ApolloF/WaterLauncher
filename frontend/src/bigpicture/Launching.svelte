@@ -123,7 +123,7 @@
 </script>
 
 <div class="launch">
-  {#if game}<div class="art"><GameArt {game} kind="hero" /></div>{/if}
+  {#if game}<div class="art"><GameArt {game} kind="backdrop" /></div>{/if}
   <div class="shade"></div>
   <div class="content">
     <span class="label">{label}</span>

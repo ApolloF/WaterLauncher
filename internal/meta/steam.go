@@ -37,6 +37,9 @@ type steamDetails struct {
 	Release struct {
 		Date string `json:"date"`
 	} `json:"release_date"`
+	Screenshots []struct {
+		Full string `json:"path_full"`
+	} `json:"screenshots"`
 }
 
 // steamAppDetails reads the store page data. The response is keyed by

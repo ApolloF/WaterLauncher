@@ -329,6 +329,19 @@ On `feature/v1.2`.
 2. **Diagnostics and crash capture**: `debug.SetCrashOutput` into `crash.log` (kept as `crash-previous.log` by the next start, which says so), *Copy diagnostics* / *Report a problem* in *Settings → About*, `--diagnostics` for when the interface won't open, interface errors into the log. The report shortens the user folder and holds no keys or account names.
 3. **Saves after games started elsewhere**: a noticed game's session gets Syncer's after-exit backup (started, not waited on). Syncer syncs continuously and backs up every few hours by itself, so this only adds a restore point right after the session; the before-launch sync can't apply to a game that's already running.
 
+## 20. Tester feedback (2026-09-26)
+
+On `fix/tester-feedback`, from a tester's screenshots of v1.2.
+
+1. **Orbit drew over everything**: its bubbles, clock and hints (z-index up to 300) showed through the game page, Quick access and the launch sequence. The layouts now isolate their stacking.
+2. **Orbit tiling**: the ring walk visited a ring's sides in the wrong order, so games shared cells (9 of 29 hidden under others and out of reach) and the rest spread unevenly. `bigpicture/orbit.ts` fixes the spiral and adds a lens that sizes each bubble from how close its neighbours end up (never overlapping, gaps in proportion), and moves that find the nearest game ahead, keep to the column going up and down, and get past holes. The glide no longer overshoots and speeds up while a direction is held.
+3. **Console details**: the stick moved between games. It now moves between Play, favourite, hide and the three cards; a card opens in place (About in full, the controller mode to choose, where this copy is); L1 / R1 change the game.
+4. **Blurry backgrounds**: heroes are stored 1920×620, so full-screen they were stretched 1.74×, and they're the same picture as the game's tile. A new **backdrop** (first Steam screenshots, else the middle of the 3840-wide hero; at least 1280 wide at 16:9) fills big picture backgrounds. `meta.Version` 2 fetches metadata once more for it.
+5. **Folder names that don't quite match**: "Assassin Creed Black Flag Resynced" missed "Assassin's Creed: Black Flag Resynced". `scan.LooseKey` ignores apostrophes, possessive and plural s, Roman numerals, a leading "The" and camel case; the game database and the Steam store search both use it (an ambiguous key matches nothing). A clear store hit now also names the game and skips the check, and scans keep that until they know better.
+6. "Not played yet · Played 2 months ago" (Steam knew the date but counted under a minute) now reads "Played 2 months ago".
+
+The mock takes `?layout=console|orbit` and `?games=N` for trying layouts with a bigger library.
+
 ## To-do (maintainer)
 
 - [ ] **Back up the release key** before the next release: `go run ./tools/release backup <file>` in a terminal (it asks for a password). Keep the file offline and the password elsewhere. Without it, losing this PC strands v1.1+ users on their version ([RELEASING.md](RELEASING.md)).

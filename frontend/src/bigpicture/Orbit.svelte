@@ -1,6 +1,7 @@
 <script lang="ts">
   // Orbit layout: games as bubbles in a honeycomb that glides and magnifies
   // around the selected one. Only bubbles near the focus are rendered.
+  import { fade } from "svelte/transition";
   import GameArt from "../components/GameArt.svelte";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
@@ -11,6 +12,7 @@
   import { lastPlayed, played, title, type Game } from "../lib/types";
   import Glyph from "./Glyph.svelte";
   import Hints from "./Hints.svelte";
+  import { flat, hexDist, nextCell, place, spiral, type Dir } from "./orbit";
 
   type Props = {
     height: number;
@@ -27,34 +29,7 @@
   let p: Props = $props();
 
   const games = $derived(recentFirst(lib.base));
-
-  // Hex cells in rings around the centre: ring 0 has 1, ring r has 6r.
-  type Cell = { q: number; r: number };
-  const cells = $derived.by(() => {
-    const out: Cell[] = [{ q: 0, r: 0 }];
-    const dirs = [
-      [1, -1],
-      [1, 0],
-      [0, 1],
-      [-1, 1],
-      [-1, 0],
-      [0, -1],
-    ];
-    for (let ring = 1; out.length < games.length; ring++) {
-      let q = -ring,
-        r = ring; // start at a corner, walk the six sides
-      for (let side = 0; side < 6; side++) {
-        for (let s = 0; s < ring; s++) {
-          if (out.length >= games.length) break;
-          out.push({ q, r });
-          q += dirs[side][0];
-          r += dirs[side][1];
-        }
-      }
-    }
-    return out;
-  });
-  const index = $derived(new Map(cells.map((c, k) => [`${c.q},${c.r}`, k])));
+  const cells = $derived(spiral(games.length));
 
   let i = $state(0);
   let open = $state(false);
@@ -68,30 +43,27 @@
   const H = $derived(p.height);
   const CX = 960;
   const CY = $derived(H / 2 - 40);
-  const D = 172;
-  const hexDist = (a: Cell, b: Cell) => (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.q + a.r - b.q - b.r)) / 2;
+  const D = 176; // a bubble at zoom 1; the element's size, scaled from there
+  // The honeycomb keeps clear of the top bar and the name capsule below.
+  const lens = $derived({ ax: 880, ay: H / 2 - 150, flat: 0.5 });
 
   const bubbles = $derived.by(() => {
     const fc = cells[i];
     if (!fc) return [];
-    const S = 192 * zoom;
-    const Rx = 900;
-    const Ry = H / 2 - 90;
-    const cx = S * (fc.q + fc.r / 2);
-    const cy = S * fc.r * 0.866;
+    const size = D * zoom;
+    const spacing = 198 * zoom;
+    const focusSize = D * 1.25 * Math.max(zoom, 0.8);
+    const f0 = flat(fc);
     const out = [];
     for (let k = 0; k < games.length; k++) {
       const c = cells[k];
-      if (hexDist(c, fc) > (zoom < 1 ? 7 : 5)) continue;
-      const px = S * (c.q + c.r / 2) - cx;
-      const py = S * c.r * 0.866 - cy;
-      let X = Rx * Math.tanh(px / Rx);
-      let Y = Ry * Math.tanh(py / Ry);
-      const e = Math.sqrt((X / Rx) ** 2 + (Y / Ry) ** 2);
-      let sc = Math.max(0.12, 1 - 0.82 * Math.min(1, e) ** 1.6) * zoom;
-      let op = Math.max(0, Math.min(1, 1.75 - 1.5 * e));
+      if (hexDist(c, fc) > (zoom < 1 ? 11 : 7)) continue;
       const f = k === i;
-      if (f) ((sc = 1.22 * Math.max(zoom, 0.8)), (op = 1));
+      const c0 = flat(c);
+      const at = place(c0.x - f0.x, c0.y - f0.y, size, spacing, focusSize / size, lens);
+      if (at.opacity <= 0) continue;
+      let { x: X, y: Y, opacity: op } = at;
+      let sc = (at.scale * size) / D;
       if (open) {
         if (f) ((X = -430), (Y = -20), (sc = 3));
         else ((sc *= 0.55), (op *= 0.1));
@@ -101,20 +73,27 @@
     return out;
   });
 
-  function move(dq: number, dr: number, alt?: [number, number]) {
-    const c = cells[i];
-    for (const [q, r] of [[c.q + dq, c.r + dr], ...(alt ? [[c.q + alt[0], c.r + alt[1]]] : [])]) {
-      const k = index.get(`${q},${r}`);
-      if (k !== undefined) {
-        i = k;
-        feedback.move();
-        return;
-      }
-    }
+  // Up and down keep to the column the last sideways move was in.
+  let anchorX = $state(0);
+  function select(k: number) {
+    i = k;
+    anchorX = flat(cells[k]).x;
+  }
+  function move(dir: Dir) {
+    const k = nextCell(cells, i, dir, anchorX);
+    if (k === null) return;
+    i = k;
+    if (dir === "left" || dir === "right") anchorX = flat(cells[k]).x;
+    feedback.move();
   }
 
+  // A held direction repeats quickly; the glide keeps up instead of lagging.
+  let fast = $state(false);
+  let fastTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => () => clearTimeout(fastTimer));
+
   $effect(() =>
-    useInput((intent) => {
+    useInput((intent, repeat) => {
       if (open) {
         if (intent === "confirm" && g) p.onplay(g);
         else if (intent === "back" || intent === "left") ((open = false), feedback.move());
@@ -124,13 +103,13 @@
       }
       switch (intent) {
         case "left":
-          return move(-1, 0);
         case "right":
-          return move(1, 0);
         case "up":
-          return move(0, -1, [1, -1]);
         case "down":
-          return move(0, 1, [-1, 1]);
+          fast = repeat;
+          clearTimeout(fastTimer);
+          if (repeat) fastTimer = setTimeout(() => (fast = false), 260);
+          return move(intent);
         case "confirm":
           if (g) ((open = true), feedback.confirm());
           return;
@@ -181,7 +160,7 @@
   });
 </script>
 
-<div class="orbit">
+<div class="orbit" class:fast>
   <div class="glow" style:left="{open ? CX - 430 : CX}px" style:top="{open ? CY - 20 : CY}px"></div>
 
   <div class="top-left"><Logo size={30} /><span>Library</span><span class="muted">{games.length} games</span></div>
@@ -202,8 +181,9 @@
       style:opacity={b.op}
       style:z-index={b.z}
       style:box-shadow={b.f ? `0 0 0 ${(open ? 0 : 4 / b.sc).toFixed(2)}px #fff, 0 0 ${(70 / b.sc).toFixed(1)}px color-mix(in oklab, var(--accent-game) 55%, transparent)` : "none"}
-      onclick={() => (b.f ? (open ? p.onplay(b.g) : (open = true)) : ((i = b.k), (open = false)))}
+      onclick={() => (b.f ? (open ? p.onplay(b.g) : (open = true)) : (select(b.k), (open = false)))}
       aria-label={title(b.g)}
+      transition:fade={{ duration: 260 }}
     >
       <GameArt game={b.g} kind="cover" />
     </button>
@@ -279,6 +259,9 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
+    /* Its bubbles' z-indexes stay inside: the game page, quick access and
+       the launch sequence open on top. */
+    isolation: isolate;
     background: #000;
     color: #fff;
   }
@@ -343,10 +326,14 @@
     overflow: hidden;
     background: #111;
     transition:
-      transform 0.62s cubic-bezier(0.34, 1.32, 0.64, 1),
-      opacity 0.45s ease,
-      box-shadow 0.4s ease;
+      transform 0.46s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.4s ease,
+      box-shadow 0.35s ease;
     will-change: transform;
+  }
+  .fast .bubble {
+    transition-duration: 0.2s, 0.2s, 0.2s;
+    transition-timing-function: ease-out;
   }
   .capsule {
     position: absolute;

@@ -13,6 +13,7 @@ type Index struct {
 	bySteam map[int]*Entry
 	byGog   map[string]*Entry
 	byName  map[string]*Entry   // normalized title or alias
+	byLoose map[string]*Entry   // scan.LooseKey of titles and aliases; nil when two games share one
 	byDir   map[string][]*Entry // normalized install folder name
 }
 
@@ -21,6 +22,7 @@ func build(es []Entry) *Index {
 		bySteam: make(map[int]*Entry, len(es)/2),
 		byGog:   make(map[string]*Entry, len(es)/8),
 		byName:  make(map[string]*Entry, len(es)),
+		byLoose: make(map[string]*Entry, len(es)),
 		byDir:   make(map[string][]*Entry, len(es)/2),
 	}
 	for i := range es {
@@ -37,6 +39,13 @@ func build(es []Entry) *Index {
 			if k := scan.Normalize(n); len(k) >= 2 {
 				if _, ok := ix.byName[k]; !ok {
 					ix.byName[k] = e
+				}
+			}
+			if k := scan.LooseKey(n); len(k) >= 4 {
+				if prev, ok := ix.byLoose[k]; !ok {
+					ix.byLoose[k] = e
+				} else if prev != nil && prev != e && (prev.SteamID == 0 || prev.SteamID != e.SteamID) {
+					ix.byLoose[k] = nil // ambiguous: better no match than a wrong one
 				}
 			}
 		}
@@ -110,7 +119,11 @@ func (ix *Index) Identify(c scan.Candidate) Match {
 	if store {
 		// The store's title is authoritative; the manifest only adds a Steam id for art.
 		m.Confidence, m.How = 100, c.How
-		if e := ix.byTitle(c.Title); e != nil && e.SteamID > 0 {
+		e := ix.byTitle(c.Title)
+		if e == nil {
+			e = ix.byLooseTitle(c.Title)
+		}
+		if e != nil && e.SteamID > 0 {
 			m.SteamAppID = e.SteamID
 		}
 		return m
@@ -127,6 +140,17 @@ func (ix *Index) Identify(c scan.Candidate) Match {
 		if es := ix.byDir[scan.Normalize(filepath.Base(c.Dir))]; len(es) == 1 {
 			e := es[0]
 			return Match{Title: e.Name, SteamAppID: e.SteamID, GogID: e.GogID, Confidence: 70, How: "Matched by install folder name"}
+		}
+	}
+	// Spelled a little differently, as folder names often are ("Assassin
+	// Creed" for "Assassin's Creed").
+	names := []string{c.Title, reEdition.ReplaceAllString(c.Title, "")}
+	if c.Dir != "" {
+		names = append(names, scan.CleanTitle(filepath.Base(c.Dir)))
+	}
+	for _, t := range names {
+		if e := ix.byLooseTitle(t); e != nil {
+			return Match{Title: e.Name, SteamAppID: e.SteamID, GogID: e.GogID, Confidence: 72, How: "Matched by a similar title"}
 		}
 	}
 	// Unknown to the manifest: keep the name, trusting installer records more than folder names.
@@ -149,4 +173,17 @@ func (ix *Index) byTitle(title string) *Entry {
 	}
 	// "Baldurs Gate 3" and "Baldur's Gate 3" normalize the same.
 	return ix.byName[k]
+}
+
+// byLooseTitle finds a game whose title has the same scan.LooseKey, when
+// only one game does.
+func (ix *Index) byLooseTitle(title string) *Entry {
+	if ix == nil {
+		return nil
+	}
+	k := scan.LooseKey(title)
+	if len(k) < 4 {
+		return nil
+	}
+	return ix.byLoose[k]
 }

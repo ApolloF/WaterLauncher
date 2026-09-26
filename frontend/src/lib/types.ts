@@ -12,6 +12,7 @@ export interface Meta {
   controller?: string;
   cover?: string;
   hero?: string;
+  backdrop?: string; // 16:9, for full-screen backgrounds
   logo?: string;
   icon?: string;
   accent?: string;
