@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **v0.1 to v0.6 released** as prereleases (2026-09-25 and 26). Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). **v0.7** (owned games that aren't installed) is built on `feature/v0.7-owned`. It needs a test with a real Steam key and Epic sign-in before release.
+Status: **v0.1 to v0.7 released** as prereleases (2026-09-25 and 26). Alongside: [gamekit](https://github.com/ApolloF/gamekit) v0.1.0, Syncer 0.11.0 (launcher API) and DLSS Updater 1.4.0 (add-on mode). **v1.0** (installer, auto-update, start with Windows, code signing) is next.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
