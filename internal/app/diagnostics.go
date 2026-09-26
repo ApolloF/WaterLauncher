@@ -35,7 +35,11 @@ var crashedLastTime bool
 // CaptureCrashes routes crash output to crash.log, first keeping what the
 // previous run left there. It reports whether that run crashed.
 func CaptureCrashes() bool {
-	crashedLastTime = captureCrashes(platform.AppDir())
+	dir := platform.AppDir()
+	crashedLastTime = captureCrashes(dir)
+	if crashedLastTime {
+		logx.Printf("the last run crashed; its output is in %s", previousCrashFile(dir))
+	}
 	return crashedLastTime
 }
 
@@ -44,10 +48,7 @@ func captureCrashes(dir string) bool {
 	p := crashFile(dir)
 	if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
 		_ = os.Remove(previousCrashFile(dir))
-		if os.Rename(p, previousCrashFile(dir)) == nil {
-			crashed = true
-			logx.Printf("the last run crashed; its output is in %s", previousCrashFile(dir))
-		}
+		crashed = os.Rename(p, previousCrashFile(dir)) == nil
 	}
 	f, err := os.Create(p)
 	if err != nil {
