@@ -18,16 +18,22 @@ From v1.1, every release is signed with WaterLauncher's **release key**, an ed25
 
 ## Steps
 
-1. Merge the release branch into `main`; commit "Version X.Y.Z" (the version in `build/windows/info.json`, the status line in `docs/PLAN.md`); write `docs/releases/vX.Y.Z.md`.
-2. Tag and push: `git tag vX.Y.Z && git push origin main vX.Y.Z`.
-3. CI builds, tests and (when configured) code-signs, then creates a **draft** release with `WaterLauncher-setup.exe`, `WaterLauncher.exe` and their `.sha256`. Drafts are invisible to users and to the updater.
-4. Sign and publish from the maintainer's PC:
+1. Merge the release branch into `main` and write `docs/releases/vX.Y.Z.md` (on the branch, or on `main` before the next step).
+2. From a clean `main`, level with GitHub:
 
    ```bash
-   go run ./tools/release publish vX.Y.Z
+   go run ./tools/release cut vX.Y.Z --pr <number>
    ```
 
-   It downloads the draft's files, checks them against the `.sha256` CI made, prints the hashes, writes `SHA256SUMS` and `SHA256SUMS.sig`, uploads them, publishes the release (as *latest* unless it's a preview like `v1.2.0-beta.1`), and verifies the published signature.
-5. Optional: compare the printed hashes with the ones in the CI run's *Checksums* step log before step 4. The signature says "the maintainer approved exactly these files"; it can't tell whether CI built the right thing.
+   It stops at the first check that fails, before anything that can't be undone:
+   - the tag is a version, its notes exist, and it isn't used yet;
+   - the working tree is clean, on `main`, level with `origin/main`;
+   - the pull request is merged and its last commit is in `main`;
+   - CI passed for `main`'s head (it waits while CI runs).
+
+   Then it commits "Version X.Y.Z" (`build/windows/info.json`), pushes, tags, checks the tag on GitHub, waits for CI to build, test (including an install/uninstall smoke test) and code-sign the tag into a **draft** release, and runs `publish` (below). `--dry-run` does the checks only.
+3. `publish` downloads the draft's files, checks them against the `.sha256` CI made, prints the hashes, writes `SHA256SUMS` and `SHA256SUMS.sig`, uploads them, publishes the release (as *latest* unless it's a preview like `v1.2.0-beta.1`), and verifies the published signature. It can also be run on its own: `go run ./tools/release publish vX.Y.Z`.
+4. Optional: compare the printed hashes with the CI run's *Checksums* step. The signature says "the maintainer approved exactly these files"; it can't tell whether CI built the right thing.
+5. Update the status line in `docs/PLAN.md`.
 
 `go run ./tools/release verify vX.Y.Z` checks any published release.

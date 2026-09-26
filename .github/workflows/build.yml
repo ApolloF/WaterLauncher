@@ -164,6 +164,32 @@ jobs:
         if: env.SIGNPATH == 'true'
         run: Copy-Item signed-installer/WaterLauncher-setup.exe bin/ -Force
 
+      - name: Installer smoke test
+        # Install silently, start in the tray, close it the way the installer
+        # does (--quit), uninstall silently: what an update and an uninstall do.
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'WaterLauncher test'
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WaterLauncher'
+          Start-Process bin/WaterLauncher-setup.exe -ArgumentList "/S /D=$dir" -Wait
+          if (-not (Test-Path "$dir\WaterLauncher.exe") -or -not (Test-Path "$dir\uninstall.exe")) { throw 'files missing after install' }
+          $ver = (Get-ItemProperty $key).DisplayVersion
+          if ($ver -ne $env:WL_NUM) { throw "uninstall entry says $ver, expected $env:WL_NUM" }
+          $q = Start-Process "$dir\WaterLauncher.exe" -ArgumentList '--quit' -PassThru
+          if (-not $q.WaitForExit(15000)) { throw '--quit with nothing running did not exit' }
+          $p = Start-Process "$dir\WaterLauncher.exe" -ArgumentList '--tray' -PassThru
+          Start-Sleep -Seconds 10
+          if ($p.HasExited) { throw "WaterLauncher exited on its own (code $($p.ExitCode))" }
+          $q = Start-Process "$dir\WaterLauncher.exe" -ArgumentList '--quit' -PassThru
+          if (-not $q.WaitForExit(15000)) { throw '--quit did not return' }
+          if (-not $p.WaitForExit(20000)) { throw 'WaterLauncher did not quit when asked' }
+          Start-Process "$dir\uninstall.exe" -ArgumentList '/S' -Wait
+          for ($i = 0; $i -lt 30 -and (Test-Path "$dir\WaterLauncher.exe"); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path "$dir\WaterLauncher.exe") { throw 'files left after uninstall' }
+          if (Test-Path $key) { throw 'uninstall entry left' }
+          Get-Content "$env:APPDATA\WaterLauncher\waterlauncher.log" -ErrorAction SilentlyContinue | Select-Object -Last 10
+          $crash = "$env:APPDATA\WaterLauncher\crash.log"
+          if ((Test-Path $crash) -and (Get-Item $crash).Length -gt 0) { Get-Content $crash; throw 'WaterLauncher crashed' }
+
       - name: Checksums
         run: |
           foreach ($f in 'WaterLauncher.exe', 'WaterLauncher-setup.exe') {

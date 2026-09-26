@@ -321,6 +321,14 @@ Two independent parts.
 
 Decisions for the user: where the release key lives and how it's backed up; whether to apply to SignPath (or pay for Azure Artifact Signing).
 
+## 19. v1.2 (2026-09-26)
+
+On `feature/v1.2`.
+
+1. **Safer releases**: `tools/release cut` (RELEASING.md) after a masked merge failure nearly tagged v1.1.0 on a `main` without its code; CI's installer smoke test (silent install, `--tray`, `--quit`, silent uninstall, no crash output).
+2. **Diagnostics and crash capture**: `debug.SetCrashOutput` into `crash.log` (kept as `crash-previous.log` by the next start, which says so), *Copy diagnostics* / *Report a problem* in *Settings → About*, `--diagnostics` for when the interface won't open, interface errors into the log. The report shortens the user folder and holds no keys or account names.
+3. **Saves after games started elsewhere**: a noticed game's session gets Syncer's after-exit backup (started, not waited on). Syncer syncs continuously and backs up every few hours by itself, so this only adds a restore point right after the session; the before-launch sync can't apply to a game that's already running.
+
 ## To-do (maintainer)
 
 - [ ] **Back up the release key** before the next release: `go run ./tools/release backup <file>` in a terminal (it asks for a password). Keep the file offline and the password elsewhere. Without it, losing this PC strands v1.1+ users on their version ([RELEASING.md](RELEASING.md)).
