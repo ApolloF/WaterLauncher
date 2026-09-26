@@ -85,6 +85,7 @@ export interface Settings {
   glyphs: "auto" | "playstation" | "xbox";
   closeWhilePlaying: boolean;
   padWhilePlaying: "listen" | "off";
+  noticeExternal: boolean;
   syncSavesBefore: boolean;
   backupSavesAfter: boolean;
   autoUpdate: boolean;
@@ -173,7 +174,8 @@ export interface Session {
   gameId: number;
   title: string;
   phase: Phase;
-  route: "direct" | "store" | "steamInput" | "";
+  /** "external": started outside WaterLauncher and noticed. */
+  route: "direct" | "store" | "steamInput" | "external" | "";
   before: StepState[];
   after: StepState[];
   question?: Question;

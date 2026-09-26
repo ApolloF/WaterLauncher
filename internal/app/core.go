@@ -58,6 +58,7 @@ type Core struct {
 	addons   *addonState
 	owned    *ownedState
 	updates  *updater
+	external *externalWatch
 
 	shell       *Shell
 	pad         atomic.Pointer[pad.Manager]
@@ -104,6 +105,8 @@ func (c *Core) Start() {
 	go c.meta.run(c.ctx)
 	go c.owned.loop(c.ctx)
 	go c.updates.loop(c.ctx)
+	c.external = newExternalWatch(c)
+	c.external.set(c.Settings.Get().NoticeExternal)
 	if exe, err := os.Executable(); err == nil && platform.RepairStartup(exe) {
 		logx.Printf("start with Windows: now starts %s", exe)
 	}

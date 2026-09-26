@@ -61,6 +61,7 @@ let settings: Settings = {
   glyphs: "auto",
   closeWhilePlaying: true,
   padWhilePlaying: "listen",
+  noticeExternal: true,
   showOwned: false,
   ownedGOG: false,
   syncSavesBefore: true,

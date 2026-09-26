@@ -315,7 +315,7 @@ func (m *Manager) run(ctx context.Context, p Plan) {
 // playtime. It returns the seconds played, or -1 when the session ended
 // without the game being seen.
 func (m *Manager) follow(ctx context.Context, p Plan, pid uint32) int64 {
-	t := newTracker(usableDirs(p.Dirs), pid, uint32(os.Getpid()), m.image)
+	t := newTracker(UsableDirs(p.Dirs), pid, uint32(os.Getpid()), m.image)
 	timeout := p.DetectTimeout
 	if timeout <= 0 {
 		timeout = time.Minute
@@ -503,9 +503,9 @@ func copySession(s Session) Session {
 	return s
 }
 
-// usableDirs drops folders too broad to say a process belongs to the game
+// UsableDirs drops folders too broad to say a process belongs to the game
 // (a drive root, Program Files, the user's profile, …).
-func usableDirs(dirs []string) []string {
+func UsableDirs(dirs []string) []string {
 	broad := map[string]bool{}
 	for _, d := range []string{platform.ProgramFiles, platform.ProgramFilesX86, platform.Profile, platform.Desktop,
 		platform.PublicDesktop, platform.Local, platform.Roaming, platform.ProgramData, platform.Public, platform.WindowsDir} {

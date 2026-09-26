@@ -39,6 +39,7 @@ type Settings struct {
 	// While playing
 	CloseWhilePlaying bool   `json:"closeWhilePlaying"` // close the interface while a game runs (frees its memory)
 	PadWhilePlaying   string `json:"padWhilePlaying"`   // listen (PS button opens the overlay), off (release the controller)
+	NoticeExternal    bool   `json:"noticeExternal"`    // follow games started outside WaterLauncher (playtime, controller)
 
 	// Saves, through Syncer
 	SyncSavesBefore  bool `json:"syncSavesBefore"`  // sync a game's saves before it starts
@@ -54,7 +55,7 @@ func Defaults() Settings {
 		Folders: []string{}, AutoFolders: true, DetectUnofficial: true, ReviewUncertain: true,
 		Theme: "system", BigPictureLayout: "deck",
 		OpenBigPictureOnController: true, Haptics: true, Lightbar: true, PSButton: true, Glyphs: "auto",
-		CloseWhilePlaying: true, PadWhilePlaying: "listen",
+		CloseWhilePlaying: true, PadWhilePlaying: "listen", NoticeExternal: true,
 		SyncSavesBefore: true, BackupSavesAfter: true,
 		AutoUpdate: true,
 	}

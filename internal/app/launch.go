@@ -243,7 +243,11 @@ func (c *Core) onSession(s launch.Session) {
 	}
 	if c.shell != nil {
 		c.shell.setTrayTooltip("WaterLauncher")
-		c.shell.gameEnded()
+		if s.Route == RouteExternal {
+			c.shell.CloseOverlay() // the interface wasn't closed for it
+		} else {
+			c.shell.gameEnded()
+		}
 	}
 }
 
