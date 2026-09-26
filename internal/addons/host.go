@@ -54,6 +54,7 @@ type proc struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
 
+	wmu      sync.Mutex // one write to stdin at a time; never held with mu
 	mu       sync.Mutex
 	next     int64
 	pending  map[int64]chan reply
@@ -298,8 +299,10 @@ func (p *proc) send(v any) error {
 	if err != nil {
 		return err
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	// Not under mu: a write blocks while the add-on isn't reading, and the
+	// reader needs mu to hand out replies, or the two would wait on each other.
+	p.wmu.Lock()
+	defer p.wmu.Unlock()
 	_, err = p.stdin.Write(append(b, '\n'))
 	return err
 }
@@ -360,8 +363,12 @@ func (p *proc) stop() {
 	p.mu.Lock()
 	p.stopping = true
 	p.mu.Unlock()
-	_ = p.send(map[string]any{"jsonrpc": "2.0", "method": "shutdown"})
-	_ = p.stdin.Close()
+	// An add-on that stopped reading would block the goodbye; ending it
+	// below unblocks the write.
+	go func() {
+		_ = p.send(map[string]any{"jsonrpc": "2.0", "method": "shutdown"})
+		_ = p.stdin.Close()
+	}()
 	select {
 	case <-p.dead:
 	case <-time.After(3 * time.Second):

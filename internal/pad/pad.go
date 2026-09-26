@@ -87,6 +87,11 @@ const (
 	stickOn     = 16000 // of 32767: a stick counts as pressed past this
 	stickOff    = 11000 // and released below this
 	triggerOn   = 16000
+
+	pollActive  = 8 * time.Millisecond   // a controller is in use
+	pollIdle    = 16 * time.Millisecond  // connected, untouched for a few seconds
+	pollPassive = 33 * time.Millisecond  // a game runs: only the PS button matters
+	pollNoPad   = 250 * time.Millisecond // nothing connected: only hotplug
 )
 
 // Manager owns the SDL thread.
@@ -285,7 +290,7 @@ func (m *Manager) loop() {
 		<-m.quit
 		return
 	}
-	off := false
+	off, passive := false, false
 	defer func() {
 		if !off {
 			s.quit.Call()
@@ -297,8 +302,35 @@ func (m *Manager) loop() {
 	axes := map[uint8]int16{}
 	battery := time.NewTicker(30 * time.Second)
 	defer battery.Stop()
-	tick := time.NewTicker(8 * time.Millisecond)
+	// SDL is polled; how often depends on what could happen. Without a
+	// controller only hotplug matters, and an idle launcher shouldn't wake
+	// the CPU 125 times a second.
+	var lastInput time.Time
+	every := pollIdle
+	interval := func() time.Duration {
+		padsMu.Lock()
+		n := len(pads)
+		padsMu.Unlock()
+		switch {
+		case off:
+			return time.Hour // nothing to read
+		case n == 0:
+			return pollNoPad
+		case passive:
+			return pollPassive
+		case time.Since(lastInput) < 5*time.Second || len(held) > 0:
+			return pollActive
+		}
+		return pollIdle
+	}
+	tick := time.NewTicker(every)
 	defer tick.Stop()
+	retune := func() {
+		if next := interval(); next != every {
+			every = next
+			tick.Reset(every)
+		}
+	}
 
 	press := func(a string) {
 		if a == "" {
@@ -326,13 +358,14 @@ func (m *Manager) loop() {
 			}
 			clear(held)
 			clear(axes)
-			off = mode == Off
+			off, passive = mode == Off, mode == Passive
 			if !off {
 				if err := m.start(s, mode == Passive); err != nil {
 					m.setState(func(st *State) { st.Error = "controller support unavailable: " + err.Error() })
 				}
 			}
 			m.refreshState(s)
+			retune()
 			continue
 		case <-battery.C:
 			m.refreshState(s)
@@ -349,6 +382,9 @@ func (m *Manager) loop() {
 			}
 			typ := binary.LittleEndian.Uint32(ev[0:])
 			which := binary.LittleEndian.Uint32(ev[16:])
+			if typ == evGamepadDown || typ == evGamepadAxis {
+				lastInput = time.Now()
+			}
 			switch typ {
 			case evGamepadAdded:
 				m.open(s, which)
@@ -399,6 +435,7 @@ func (m *Manager) loop() {
 				held[a] = now.Add(repeatEvery)
 			}
 		}
+		retune()
 	}
 }
 

@@ -1,7 +1,9 @@
 package app
 
 import (
+	"runtime/debug"
 	"sync"
+	"time"
 
 	"github.com/ApolloF/WaterLauncher/internal/logx"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -109,6 +111,9 @@ func (s *Shell) closeMainForGame() {
 	if w != nil {
 		w.Close()
 		logx.Printf("interface closed while playing")
+		// Hand the memory the interface's data used back to Windows now,
+		// rather than whenever the runtime gets round to it.
+		time.AfterFunc(3*time.Second, debug.FreeOSMemory)
 	}
 	s.mu.Lock()
 	s.closing = false

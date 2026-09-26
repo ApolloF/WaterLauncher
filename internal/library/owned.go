@@ -131,32 +131,51 @@ func (s *Store) ForgetOwned(store string) int {
 // the same store id: the found game keeps the user's choices (favorite,
 // hidden, title, playtime) and the owned mark.
 func (s *Store) mergeOwnedLocked() {
+	// Games found on this PC by store and id, built once: a big owned
+	// library against every found game would otherwise be quadratic.
+	var local map[string]*Game
 	for _, o := range s.games {
 		if !o.IsOwnedOnly() {
 			continue
 		}
 		store := o.Source
 		id := o.storeID(store)
-		for _, g := range s.games {
-			if g == o || g.IsOwnedOnly() || id == "" || g.storeID(store) != id {
-				continue
-			}
-			g.Owned, g.InstallURI = true, o.InstallURI
-			g.Favorite = g.Favorite || o.Favorite
-			g.Hidden = g.Hidden && o.Hidden
-			if g.CustomTitle == "" {
-				g.CustomTitle = o.CustomTitle
-			}
-			g.Playtime += o.Playtime
-			g.LastPlayed = max(g.LastPlayed, o.LastPlayed)
-			g.StorePlaytime = max(g.StorePlaytime, o.StorePlaytime)
-			g.StoreLastPlayed = max(g.StoreLastPlayed, o.StoreLastPlayed)
-			if g.Meta == nil {
-				g.Meta = o.Meta
-			}
-			s.dropLocked(o)
-			break
+		if id == "" {
+			continue
 		}
+		if local == nil {
+			local = map[string]*Game{}
+			for _, g := range s.games {
+				if g.IsOwnedOnly() {
+					continue
+				}
+				for _, st := range []string{"steam", "gog", "epic"} {
+					if gid := g.storeID(st); gid != "" {
+						if k := st + ":" + gid; local[k] == nil {
+							local[k] = g
+						}
+					}
+				}
+			}
+		}
+		g := local[store+":"+id]
+		if g == nil {
+			continue
+		}
+		g.Owned, g.InstallURI = true, o.InstallURI
+		g.Favorite = g.Favorite || o.Favorite
+		g.Hidden = g.Hidden && o.Hidden
+		if g.CustomTitle == "" {
+			g.CustomTitle = o.CustomTitle
+		}
+		g.Playtime += o.Playtime
+		g.LastPlayed = max(g.LastPlayed, o.LastPlayed)
+		g.StorePlaytime = max(g.StorePlaytime, o.StorePlaytime)
+		g.StoreLastPlayed = max(g.StoreLastPlayed, o.StoreLastPlayed)
+		if g.Meta == nil {
+			g.Meta = o.Meta
+		}
+		s.dropLocked(o)
 	}
 }
 

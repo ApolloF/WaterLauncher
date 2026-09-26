@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/ApolloF/WaterLauncher/internal/launch"
 	"github.com/ApolloF/WaterLauncher/internal/library"
 	"github.com/ApolloF/WaterLauncher/internal/logx"
+	"github.com/ApolloF/WaterLauncher/internal/meta"
 	"github.com/ApolloF/WaterLauncher/internal/pad"
 	"github.com/ApolloF/WaterLauncher/internal/platform"
 	"github.com/ApolloF/WaterLauncher/internal/scan"
@@ -24,7 +26,8 @@ import (
 
 // Events the frontend listens for.
 const (
-	EventLibraryChanged = "library:changed"
+	EventLibraryChanged = "library:changed" // reload the whole library
+	EventGamesUpdated   = "games:updated"   // these games changed; the rest didn't
 	EventScanState      = "scan:state"
 )
 
@@ -42,6 +45,7 @@ type ScanState struct {
 func init() {
 	application.RegisterEvent[ScanState](EventScanState)
 	application.RegisterEvent[string](EventLibraryChanged)
+	application.RegisterEvent[[]library.Game](EventGamesUpdated)
 }
 
 // Core is shared by the services.
@@ -53,6 +57,7 @@ type Core struct {
 	Launch   *launch.Manager
 	addons   *addonState
 	owned    *ownedState
+	updates  *updater
 
 	shell       *Shell
 	pad         atomic.Pointer[pad.Manager]
@@ -68,6 +73,7 @@ type Core struct {
 	pending chan struct{}
 	watcher *fsnotify.Watcher
 	meta    *metaWorker
+	pruned  sync.Once // unused art is cleared once per start
 }
 
 // NewCore opens the library and settings.
@@ -86,6 +92,7 @@ func NewCore(version string) (*Core, error) {
 	c.Launch = launch.NewManager(c.onSession)
 	c.addons = newAddonState(version)
 	c.owned = newOwnedState(c)
+	c.updates = newUpdater(c)
 	return c, nil
 }
 
@@ -95,6 +102,10 @@ func (c *Core) Start() {
 	go c.scanLoop()
 	go c.meta.run(c.ctx)
 	go c.owned.loop(c.ctx)
+	go c.updates.loop(c.ctx)
+	if exe, err := os.Executable(); err == nil && platform.RepairStartup(exe) {
+		logx.Printf("start with Windows: now starts %s", exe)
+	}
 	c.RequestScan()
 	go func() {
 		if !c.Manifest.Stale() {
@@ -136,6 +147,13 @@ func (c *Core) Stop() {
 	}
 }
 
+// quitForUpdate closes WaterLauncher so an update can take its place.
+func (c *Core) quitForUpdate() {
+	if a := application.Get(); a != nil {
+		a.Quit()
+	}
+}
+
 // RequestScan asks for a scan soon; requests while one runs coalesce.
 func (c *Core) RequestScan() {
 	select {
@@ -150,9 +168,26 @@ func (c *Core) scanLoop() {
 		case <-c.ctx.Done():
 			return
 		case <-c.pending:
+			if !c.waitIdle(c.ctx) {
+				return
+			}
 			c.scanNow()
 		}
 	}
+}
+
+// waitIdle holds background work (scans, metadata, store accounts) while
+// a game runs, so it gets the disk, network and CPU to itself. It reports
+// false when WaterLauncher is closing.
+func (c *Core) waitIdle(ctx context.Context) bool {
+	for c.Launch.Active() {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(15 * time.Second):
+		}
+	}
+	return ctx.Err() == nil
 }
 
 func (c *Core) scanNow() {
@@ -182,6 +217,7 @@ func (c *Core) scanNow() {
 	c.emit(EventLibraryChanged, "scan")
 	c.rewatch(cfg)
 	c.meta.queueMissing()
+	c.pruned.Do(func() { go c.pruneArt() })
 	if added > 0 && len(known) > 0 {
 		var fresh []library.Game
 		for _, g := range c.Lib.Games() {
@@ -246,6 +282,20 @@ func (c *Core) State() ScanState {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	return c.state
+}
+
+// gamesChanged sends the interface the games that changed, so it doesn't
+// reload a whole (possibly large) library for one favorite or new cover.
+func (c *Core) gamesChanged(ids ...int64) {
+	out := make([]library.Game, 0, len(ids))
+	for _, id := range ids {
+		if g, ok := c.Lib.Get(id); ok {
+			out = append(out, g)
+		}
+	}
+	if len(out) > 0 {
+		c.emit(EventGamesUpdated, out)
+	}
 }
 
 func (c *Core) emit(name string, data any) {
@@ -319,6 +369,22 @@ func (c *Core) watchLoop(w *fsnotify.Watcher) {
 			}
 			logx.Printf("watcher: %v", err)
 		}
+	}
+}
+
+// pruneArt deletes stored art no game uses anymore.
+func (c *Core) pruneArt() {
+	keep := map[string]bool{}
+	for _, g := range c.Lib.Games() {
+		if m := g.Meta; m != nil {
+			keep[m.Cover], keep[m.Hero], keep[m.Logo], keep[m.Icon] = true, true, true, true
+		}
+	}
+	if len(keep) == 0 {
+		return // an empty (or lost) library: leave the art for a restored one
+	}
+	if n, freed := meta.PruneArt(platform.CacheDir("art"), keep, 24*time.Hour); n > 0 {
+		logx.Printf("art: removed %d unused images (%d KB)", n, freed>>10)
 	}
 }
 

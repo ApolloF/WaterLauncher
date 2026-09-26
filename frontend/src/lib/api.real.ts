@@ -1,7 +1,7 @@
 import { Events, Window } from "@wailsio/runtime";
-import { AccountsService, AddonsService, LaunchService, LibraryService, PadService, SavesService, SettingsService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
+import { AccountsService, AddonsService, LaunchService, LibraryService, PadService, SavesService, SettingsService, UpdateService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
 import type { Api } from "./api";
-import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, StoreHit } from "./types";
+import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, Startup, StoreHit, UpdateState } from "./types";
 
 // The generated bindings return the Go structs; their JSON matches ./types.
 const g = (p: Promise<unknown>) => p as Promise<Game>;
@@ -32,10 +32,21 @@ export const realApi: Api = {
   openLog: () => SettingsService.OpenLog(),
   hasSteamGridDBKey: () => SettingsService.HasSteamGridDBKey(),
   setSteamGridDBKey: (k) => SettingsService.SetSteamGridDBKey(k),
+  startWithWindows: () => SettingsService.StartWithWindows() as Promise<unknown> as Promise<Startup>,
+  setStartWithWindows: (on) => SettingsService.SetStartWithWindows(on) as Promise<unknown> as Promise<Startup>,
 
   onLibraryChanged: (cb) => Events.On("library:changed", () => cb()),
+  onGamesUpdated: (cb) => Events.On("games:updated", (e) => cb((e.data ?? []) as unknown as Game[])),
   onScanState: (cb) => Events.On("scan:state", (e) => cb(e.data as unknown as ScanState)),
   onMetaState: (cb) => Events.On("meta:state", (e) => cb(e.data as unknown as MetaState)),
+
+  updates: {
+    state: () => UpdateService.State() as Promise<unknown> as Promise<UpdateState>,
+    check: () => void UpdateService.Check(),
+    install: () => UpdateService.Install(),
+    openReleasePage: () => UpdateService.OpenReleasePage(),
+    onState: (cb) => Events.On("update:state", (e) => cb(e.data as unknown as UpdateState)),
+  },
 
   saves: {
     get: (id, fresh = false) => SavesService.Saves(id, fresh) as Promise<unknown> as Promise<Saves>,

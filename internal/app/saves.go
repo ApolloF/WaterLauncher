@@ -106,7 +106,11 @@ func (s *SavesService) OpenSyncer() error {
 	if !ok {
 		return syncer.ErrNotInstalled
 	}
-	return exec.Command(exe).Start() // a second start brings the open window forward
+	cmd := exec.Command(exe)
+	if err := cmd.Start(); err != nil { // a second start brings the open window forward
+		return err
+	}
+	return cmd.Process.Release()
 }
 
 // GetSyncer opens Syncer's download page.

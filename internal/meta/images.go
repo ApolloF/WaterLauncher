@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	_ "image/gif"
 
@@ -36,7 +37,7 @@ const (
 
 const (
 	maxImageBytes  = 24 << 20
-	maxImagePixels = 50_000_000 // refuse decompression bombs
+	maxImagePixels = 24_000_000 // refuse decompression bombs (8K banners still fit)
 )
 
 // Largest stored size per kind; larger images are scaled down.
@@ -265,4 +266,31 @@ func ArtHandler(artDir string) func(http.Handler) http.Handler {
 			http.ServeFile(w, r, filepath.Join(artDir, name))
 		})
 	}
+}
+
+// PruneArt deletes stored images no game uses anymore (art replaced by a
+// refresh, games removed) and leftovers of cut-short writes. keep holds the
+// art URLs in use. Files younger than grace stay: a fetch may be about to
+// use them.
+func PruneArt(artDir string, keep map[string]bool, grace time.Duration) (removed int, freed int64) {
+	entries, err := os.ReadDir(artDir)
+	if err != nil {
+		return 0, 0
+	}
+	cutoff := time.Now().Add(-grace)
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || keep[artPrefix+name] || !(reArtName.MatchString(name) || strings.HasSuffix(name, ".tmp")) {
+			continue
+		}
+		fi, err := e.Info()
+		if err != nil || fi.ModTime().After(cutoff) {
+			continue
+		}
+		if os.Remove(filepath.Join(artDir, name)) == nil {
+			removed++
+			freed += fi.Size()
+		}
+	}
+	return removed, freed
 }

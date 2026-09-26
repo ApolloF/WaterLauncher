@@ -33,3 +33,14 @@ tasks:
     summary: Runs the application in development mode
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  installer:
+    summary: Builds the installer, bin/WaterLauncher-setup.exe (needs NSIS; pass VERSION=v1.2.3)
+    cmds:
+      - task: build
+      - wails3 generate webview2bootstrapper -dir build/windows/nsis
+      - '"{{.MAKENSIS}}" -V2 -DARG_WAILS_AMD64_BINARY="{{fromSlash .ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" -DINFO_PRODUCTVERSION={{.NUM}} build/windows/nsis/project.nsi'
+    vars:
+      MAKENSIS: '{{.MAKENSIS | default "makensis"}}'
+      # 1.2.3 for VERSION=v1.2.3 (NSIS wants plain numbers); 0.0.0 for dev builds.
+      NUM: '{{if hasPrefix "v" .VERSION}}{{regexReplaceAll "[-+].*$" (trimPrefix "v" .VERSION) ""}}{{else}}0.0.0{{end}}'

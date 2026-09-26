@@ -43,6 +43,9 @@ type Settings struct {
 	// Saves, through Syncer
 	SyncSavesBefore  bool `json:"syncSavesBefore"`  // sync a game's saves before it starts
 	BackupSavesAfter bool `json:"backupSavesAfter"` // back its saves up after it exits
+
+	// Updates
+	AutoUpdate bool `json:"autoUpdate"` // check GitHub for new versions and install them on the next start
 }
 
 // Defaults are the settings on first start.
@@ -53,6 +56,7 @@ func Defaults() Settings {
 		OpenBigPictureOnController: true, Haptics: true, Lightbar: true, PSButton: true, Glyphs: "auto",
 		CloseWhilePlaying: true, PadWhilePlaying: "listen",
 		SyncSavesBefore: true, BackupSavesAfter: true,
+		AutoUpdate: true,
 	}
 }
 

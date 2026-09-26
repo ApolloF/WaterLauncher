@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAllowed(t *testing.T) {
@@ -106,5 +108,35 @@ func TestRealFetch(t *testing.T) {
 		if m.Cover == "" || m.Hero == "" {
 			t.Errorf("%d: missing art", id)
 		}
+	}
+}
+
+func TestPruneArt(t *testing.T) {
+	dir := t.TempDir()
+	old := time.Now().Add(-48 * time.Hour)
+	files := map[string]bool{
+		"1111111111111111111111111111111111111111.jpg":     true,  // in use
+		"2222222222222222222222222222222222222222.png":     false, // unused
+		"3333333333333333333333333333333333333333.jpg.tmp": false,
+		"notes.txt": true, // not ours
+	}
+	for name := range files {
+		p := filepath.Join(dir, name)
+		_ = os.WriteFile(p, []byte("x"), 0o644)
+		_ = os.Chtimes(p, old, old)
+	}
+	fresh := filepath.Join(dir, "4444444444444444444444444444444444444444.jpg")
+	_ = os.WriteFile(fresh, []byte("x"), 0o644) // just written: kept
+	n, _ := PruneArt(dir, map[string]bool{"/art/1111111111111111111111111111111111111111.jpg": true}, 24*time.Hour)
+	if n != 2 {
+		t.Errorf("removed %d, want 2", n)
+	}
+	for name, stays := range files {
+		if _, err := os.Stat(filepath.Join(dir, name)); (err == nil) != stays {
+			t.Errorf("%s: exists=%v, want %v", name, err == nil, stays)
+		}
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Error("a fresh file was removed")
 	}
 }

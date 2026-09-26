@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -195,7 +196,7 @@ func (s *LibraryService) OpenFolder(id int64) error {
 func (s *LibraryService) update(id int64, fn func(*library.Game)) (library.Game, error) {
 	g, err := s.c.Lib.Update(id, fn)
 	if err == nil {
-		s.c.emit(EventLibraryChanged, "update")
+		s.c.gamesChanged(id)
 	}
 	return g, err
 }
@@ -230,6 +231,9 @@ func (s *SettingsService) Save(v settings.Settings) (settings.Settings, error) {
 	}
 	if saved.ShowOwned && !old.ShowOwned {
 		s.c.meta.queueMissing()
+	}
+	if saved.AutoUpdate && !old.AutoUpdate {
+		NewUpdateService(s.c).Check()
 	}
 	if !sameStrings(old.Folders, saved.Folders) || old.AutoFolders != saved.AutoFolders ||
 		old.DetectUnofficial != saved.DetectUnofficial || old.ReviewUncertain != saved.ReviewUncertain {
@@ -291,6 +295,23 @@ func (s *SettingsService) SetSteamGridDBKey(key string) error {
 		s.c.meta.queueMissing()
 	}
 	return nil
+}
+
+// StartWithWindows reports whether WaterLauncher starts (in the tray) when
+// you sign in to Windows.
+func (s *SettingsService) StartWithWindows() platform.Startup { return platform.GetStartup() }
+
+// SetStartWithWindows turns starting with Windows on or off.
+func (s *SettingsService) SetStartWithWindows(on bool) (platform.Startup, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return platform.GetStartup(), err
+	}
+	if err := platform.SetStartup(exe, on); err != nil {
+		return platform.GetStartup(), err
+	}
+	logx.Printf("start with Windows: %v", on)
+	return platform.GetStartup(), nil
 }
 
 // OpenLog shows the log file's folder.

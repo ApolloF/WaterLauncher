@@ -89,4 +89,10 @@ export interface Settings {
      * back its saves up after it exits
      */
     "backupSavesAfter": boolean;
+
+    /**
+     * Updates
+     * check GitHub for new versions and install them on the next start
+     */
+    "autoUpdate": boolean;
 }

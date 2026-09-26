@@ -126,29 +126,41 @@ type fileData struct {
 
 // Store is the library. Safe for concurrent use.
 type Store struct {
-	path  string
-	mu    sync.RWMutex
-	next  int64
-	games map[int64]*Game
-	byKey map[string]*Game
-	saveT *time.Timer
+	path   string
+	mu     sync.RWMutex
+	saveMu sync.Mutex // one write of the file at a time
+	next   int64
+	games  map[int64]*Game
+	byKey  map[string]*Game
+	saveT  *time.Timer
 }
 
-// Open loads the library at path, or starts an empty one.
+// Open loads the library at path, or starts an empty one. A damaged file
+// is kept aside and the copy saved at the previous start (path.bak) is
+// used instead, when there is one.
 func Open(path string) (*Store, error) {
 	s := &Store{path: path, next: 1, games: map[int64]*Game{}, byKey: map[string]*Game{}}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return s, nil
+		b, err = os.ReadFile(path + ".bak") // a save was cut short between rename steps
+		if errors.Is(err, os.ErrNotExist) {
+			return s, nil
+		}
 	}
 	if err != nil {
 		return nil, err
 	}
 	var d fileData
 	if err := json.Unmarshal(b, &d); err != nil {
-		// Keep the damaged file for inspection and start fresh.
+		// Keep the damaged file for inspection and fall back to the backup.
 		_ = os.Rename(path, path+".broken-"+time.Now().Format("20060102-150405"))
-		return s, nil
+		bak, berr := os.ReadFile(path + ".bak")
+		if berr != nil || json.Unmarshal(bak, &d) != nil {
+			return s, nil
+		}
+	} else {
+		// This file is good: it's the one to fall back to next time.
+		go func() { _ = writeAtomic(path+".bak", b) }()
 	}
 	for _, g := range d.Games {
 		if g == nil || g.ID <= 0 || g.Key == "" || s.games[g.ID] != nil || s.byKey[g.Key] != nil {
@@ -279,6 +291,9 @@ func (s *Store) scheduleSaveLocked() {
 
 // Flush writes the library to disk now.
 func (s *Store) Flush() error {
+	// The save timer and quitting can both flush; writes mustn't interleave.
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	s.mu.RLock()
 	d := fileData{Version: 1, NextID: s.next}
 	for _, g := range s.games {

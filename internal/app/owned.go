@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -125,6 +126,8 @@ func (o *ownedState) sync(ctx context.Context) {
 		o.c.emit(EventAccounts, o.accounts())
 		o.c.emit(EventLibraryChanged, "owned")
 		o.c.meta.queueMissing()
+		// GOG Galaxy's database is read whole; don't keep the heap it grew.
+		debug.FreeOSMemory()
 	}()
 	if key := platform.LoadSecret(steamKeySecret); key != "" {
 		o.run(ctx, "steam", func(ctx context.Context) ([]library.Owned, error) {
@@ -178,6 +181,9 @@ func (o *ownedState) loop(ctx context.Context) {
 	case <-time.After(20 * time.Second):
 	}
 	for {
+		if !o.c.waitIdle(ctx) {
+			return
+		}
 		o.sync(ctx)
 		select {
 		case <-ctx.Done():

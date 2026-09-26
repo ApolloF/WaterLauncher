@@ -193,12 +193,12 @@ func (c *Core) plan(g library.Game) launch.Plan {
 			}
 			logx.Printf("play %q (%s)", title, used)
 			_, _ = c.Lib.Update(g.ID, func(x *library.Game) { x.LastPlayed = time.Now().Unix() })
-			c.emit(EventLibraryChanged, "update")
+			c.gamesChanged(g.ID)
 			return uint32(pid), used, nil
 		},
 		Played: func(secs int64) {
 			_, _ = c.Lib.Update(g.ID, func(x *library.Game) { x.Playtime += secs })
-			c.emit(EventLibraryChanged, "update")
+			c.gamesChanged(g.ID)
 		},
 		OnRun: func() {
 			c.shell.setTrayTooltip("WaterLauncher · playing " + title)
@@ -305,6 +305,31 @@ func (c *Core) steamInputStep(g library.Game, uri *string) launch.Step {
 
 func shortcutFor(g library.Game) steaminput.Shortcut {
 	return steaminput.Shortcut{Name: g.DisplayTitle(), Exe: g.Exe, WorkDir: g.WorkDir, Args: g.Args}
+}
+
+// Args are WaterLauncher's command-line options.
+type Args struct {
+	Play    int64 // --play <id>: start this game without the interface
+	Tray    bool  // --tray: start in the tray (at sign-in)
+	Quit    bool  // --quit: close the running WaterLauncher (installer)
+	Updated bool  // --updated: started by an update
+}
+
+// ParseArgs reads the command line; unknown arguments are ignored.
+func ParseArgs(args []string) Args {
+	var a Args
+	a.Play, _ = PlayArg(args)
+	for _, s := range args {
+		switch s {
+		case "--tray":
+			a.Tray = true
+		case "--quit":
+			a.Quit = true
+		case "--updated":
+			a.Updated = true
+		}
+	}
+	return a
 }
 
 // PlayArg finds "--play <id>" in command-line arguments, so a desktop

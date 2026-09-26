@@ -1,7 +1,10 @@
 package library
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -79,6 +82,47 @@ func TestBrokenFileStartsFresh(t *testing.T) {
 	s, err := Open(path)
 	if err != nil || len(s.Games()) != 0 {
 		t.Fatalf("got %v, %d games", err, len(s.Games()))
+	}
+}
+
+func TestBrokenFileFallsBackToBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.json")
+	s, _ := Open(path)
+	s.ApplyScan([]Found{{Key: `c:\games\hades`, Title: "Hades", SortTitle: "hades", Source: "folder"}}, time.Now())
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	if err := writeAtomic(path+".bak", b); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomic(path, []byte("{cut sh")); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil || len(s.Games()) != 1 {
+		t.Fatalf("got %v, %d games; want the backup's one game", err, len(s.Games()))
+	}
+}
+
+func TestConcurrentFlush(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.json")
+	s, _ := Open(path)
+	for i := 0; i < 200; i++ {
+		s.ApplyScan([]Found{{Key: fmt.Sprintf(`c:\games\%d`, i), Title: "Game", SortTitle: "game", Source: "folder"}}, time.Now())
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = s.Flush()
+		}()
+	}
+	wg.Wait()
+	s2, err := Open(path)
+	if err != nil || len(s2.Games()) != 200 {
+		t.Fatalf("after concurrent saves: %v, %d games", err, len(s2.Games()))
 	}
 }
 

@@ -44,3 +44,16 @@ func TestPlayArg(t *testing.T) {
 		}
 	}
 }
+
+func TestParseArgs(t *testing.T) {
+	a := ParseArgs([]string{`C:\WaterLauncher.exe`, "--tray", "--updated"})
+	if !a.Tray || !a.Updated || a.Quit || a.Play != 0 {
+		t.Errorf("ParseArgs = %+v", a)
+	}
+	if a := ParseArgs([]string{"--play", "7"}); a.Play != 7 || a.Tray {
+		t.Errorf("ParseArgs(--play 7) = %+v", a)
+	}
+	if a := ParseArgs([]string{"--quit"}); !a.Quit {
+		t.Errorf("ParseArgs(--quit) = %+v", a)
+	}
+}

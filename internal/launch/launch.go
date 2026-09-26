@@ -159,6 +159,7 @@ type Manager struct {
 	cancel  context.CancelFunc
 	tracked map[uint32]uint64
 	stop    chan struct{}
+	running sync.WaitGroup // the session goroutine
 }
 
 // NewManager makes a manager; onChange gets every session change.
@@ -200,19 +201,33 @@ func (m *Manager) Launch(ctx context.Context, p Plan) error {
 		Before: states(p.Before), After: states(p.After)}
 	m.mu.Unlock()
 	m.update(func(*Session) {})
+	m.running.Add(1)
 	go m.run(ctx, p)
 	return nil
 }
 
-// Close stops following the game (WaterLauncher is quitting), saving the
-// playtime counted so far.
+// Close stops following the game (WaterLauncher is quitting). It waits a
+// moment for the playtime counted so far to be handed to Played, so it's
+// in the library before that is saved.
 func (m *Manager) Close() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	select {
 	case <-m.stop:
 	default:
 		close(m.stop)
+	}
+	if m.cancel != nil {
+		m.cancel() // hooks before the game started stop too
+	}
+	m.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		m.running.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
 	}
 }
 
@@ -266,6 +281,7 @@ func (m *Manager) Quit() error {
 }
 
 func (m *Manager) run(ctx context.Context, p Plan) {
+	defer m.running.Done()
 	defer func() {
 		m.mu.Lock()
 		m.cancel()
