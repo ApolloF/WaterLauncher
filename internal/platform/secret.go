@@ -33,13 +33,10 @@ func SaveSecret(name, value string) error {
 		}
 		return nil
 	}
-	in := []byte(value)
-	var out windows.DataBlob
-	if err := windows.CryptProtectData(&windows.DataBlob{Size: uint32(len(in)), Data: &in[0]}, nil, nil, 0, nil, windows.CRYPTPROTECT_UI_FORBIDDEN, &out); err != nil {
+	enc, err := Protect([]byte(value))
+	if err != nil {
 		return err
 	}
-	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
-	enc := append([]byte(nil), unsafe.Slice(out.Data, out.Size)...)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
@@ -56,10 +53,35 @@ func LoadSecret(name string) string {
 	if err != nil || len(enc) == 0 {
 		return ""
 	}
-	var out windows.DataBlob
-	if err := windows.CryptUnprotectData(&windows.DataBlob{Size: uint32(len(enc)), Data: &enc[0]}, nil, nil, 0, nil, windows.CRYPTPROTECT_UI_FORBIDDEN, &out); err != nil {
+	b, err := Unprotect(enc)
+	if err != nil {
 		return ""
 	}
+	return string(b)
+}
+
+// Protect encrypts data with Windows DPAPI for this Windows user.
+func Protect(data []byte) ([]byte, error) {
+	if len(data) == 0 {
+		return nil, errors.New("nothing to protect")
+	}
+	var out windows.DataBlob
+	if err := windows.CryptProtectData(&windows.DataBlob{Size: uint32(len(data)), Data: &data[0]}, nil, nil, 0, nil, windows.CRYPTPROTECT_UI_FORBIDDEN, &out); err != nil {
+		return nil, err
+	}
 	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
-	return string(unsafe.Slice(out.Data, out.Size))
+	return append([]byte(nil), unsafe.Slice(out.Data, out.Size)...), nil
+}
+
+// Unprotect decrypts what Protect encrypted.
+func Unprotect(enc []byte) ([]byte, error) {
+	if len(enc) == 0 {
+		return nil, errors.New("nothing to decrypt")
+	}
+	var out windows.DataBlob
+	if err := windows.CryptUnprotectData(&windows.DataBlob{Size: uint32(len(enc)), Data: &enc[0]}, nil, nil, 0, nil, windows.CRYPTPROTECT_UI_FORBIDDEN, &out); err != nil {
+		return nil, err
+	}
+	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
+	return append([]byte(nil), unsafe.Slice(out.Data, out.Size)...), nil
 }

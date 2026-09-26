@@ -17,22 +17,19 @@ import (
 // MaxSize is the largest download accepted (the installer is ~15 MB).
 const MaxSize = 128 << 20
 
-// Download fetches the release asset called name and its published
-// "<name>.sha256" into dir, and checks the file against it. It returns the
-// file's path and SHA-256. progress (optional) hears how far it got.
+// Download fetches the release asset called name into dir and checks it:
+// against the release's signed SHA256SUMS when the feed has release keys,
+// else against its published "<name>.sha256". It returns the file's path
+// and SHA-256. progress (optional) hears how far it got.
 func (f Feed) Download(ctx context.Context, rel Release, name, dir string, progress func(done, total int64)) (string, string, error) {
 	a, ok := rel.Asset(name)
 	if !ok {
 		return "", "", fmt.Errorf("%s has no %s", rel.Tag, name)
 	}
-	s, ok := rel.Asset(name + ".sha256")
-	if !ok {
-		return "", "", fmt.Errorf("%s has no checksum for %s", rel.Tag, name)
-	}
 	if a.Size > MaxSize {
 		return "", "", fmt.Errorf("%s is too large", name)
 	}
-	want, err := f.checksum(ctx, s, name)
+	want, err := f.expected(ctx, rel, name)
 	if err != nil {
 		return "", "", err
 	}
@@ -55,6 +52,56 @@ func (f Feed) Download(ctx context.Context, rel Release, name, dir string, progr
 		return "", "", err
 	}
 	return dst, got, nil
+}
+
+// expected is the SHA-256 the release promises for name.
+func (f Feed) expected(ctx context.Context, rel Release, name string) (string, error) {
+	if len(f.Keys) == 0 {
+		s, ok := rel.Asset(name + ".sha256")
+		if !ok {
+			return "", fmt.Errorf("%s has no checksum for %s", rel.Tag, name)
+		}
+		return f.checksum(ctx, s, name)
+	}
+	sa, ok1 := rel.Asset(SumsAsset)
+	ga, ok2 := rel.Asset(SigAsset)
+	if !ok1 || !ok2 {
+		return "", fmt.Errorf("%s isn't signed", rel.Tag)
+	}
+	sums, err := f.small(ctx, sa)
+	if err != nil {
+		return "", err
+	}
+	sig, err := f.small(ctx, ga)
+	if err != nil {
+		return "", err
+	}
+	list, err := VerifySums(f.Keys, rel.Tag, sums, sig)
+	if err != nil {
+		return "", err
+	}
+	want, ok := list[name]
+	if !ok {
+		return "", fmt.Errorf("%s isn't in the signed list of %s", name, rel.Tag)
+	}
+	return want, nil
+}
+
+// small downloads a small text asset whole.
+func (f Feed) small(ctx context.Context, a Asset) ([]byte, error) {
+	resp, err := f.get(ctx, a.URL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > 64<<10 {
+		return nil, errors.New(a.Name + " is too large")
+	}
+	return b, nil
 }
 
 // checksum reads a "<hex>  <name>" file (sha256sum's format).

@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -271,5 +272,52 @@ func TestCheckPublisher(t *testing.T) {
 	}
 	if err := CheckPublisher(gh, self); err != nil {
 		t.Errorf("an unsigned build refused a signed update: %v", err)
+	}
+}
+
+func TestSignedRelease(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	f, feed := newFake(t)
+	feed.Keys = []ed25519.PublicKey{pub}
+	body := []byte("MZ signed installer")
+	h := sha256.Sum256(body)
+	sums := FormatSums(map[string]string{InstallerAsset: hex.EncodeToString(h[:])})
+	sign := func(tag string, s []byte) []byte { return EncodeSig(ed25519.Sign(priv, SignedMessage(tag, s))) }
+	ctx := context.Background()
+	try := func(tag string, files map[string][]byte) error {
+		f.publish(tag, files)
+		rel, err := feed.Latest(ctx)
+		if err != nil {
+			return err
+		}
+		_, _, err = feed.Download(ctx, rel, InstallerAsset, t.TempDir(), nil)
+		return err
+	}
+	if err := try("v1.2.0", map[string][]byte{InstallerAsset: body, SumsAsset: sums, SigAsset: sign("v1.2.0", sums)}); err != nil {
+		t.Fatalf("signed release refused: %v", err)
+	}
+	if err := try("v1.2.0", map[string][]byte{InstallerAsset: body, SumsAsset: sums}); err == nil {
+		t.Error("a release without a signature was accepted")
+	}
+	// An old signed release republished under a newer tag.
+	if err := try("v9.0.0", map[string][]byte{InstallerAsset: body, SumsAsset: sums, SigAsset: sign("v1.2.0", sums)}); err == nil {
+		t.Error("a signature for another tag was accepted")
+	}
+	// The file swapped, with its hash in a list that's no longer signed.
+	other := []byte("MZ evil")
+	h2 := sha256.Sum256(other)
+	sums2 := FormatSums(map[string]string{InstallerAsset: hex.EncodeToString(h2[:])})
+	if err := try("v1.2.0", map[string][]byte{InstallerAsset: other, SumsAsset: sums2, SigAsset: sign("v1.2.0", sums)}); err == nil {
+		t.Error("a changed SHA256SUMS was accepted")
+	}
+	// Signed by someone else.
+	_, priv2, _ := ed25519.GenerateKey(nil)
+	sig2 := EncodeSig(ed25519.Sign(priv2, SignedMessage("v1.2.0", sums)))
+	if err := try("v1.2.0", map[string][]byte{InstallerAsset: body, SumsAsset: sums, SigAsset: sig2}); err == nil {
+		t.Error("a signature by another key was accepted")
+	}
+	// Right list, wrong file.
+	if err := try("v1.2.0", map[string][]byte{InstallerAsset: other, SumsAsset: sums, SigAsset: sign("v1.2.0", sums)}); err == nil {
+		t.Error("a file not matching the signed list was accepted")
 	}
 }

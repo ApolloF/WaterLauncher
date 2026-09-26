@@ -20,8 +20,9 @@ WaterLauncher only manages games that are already installed. It never downloads 
 
 - **Installer:** `WaterLauncher-setup.exe` installs to `%LOCALAPPDATA%\Programs\WaterLauncher` with Start menu and desktop shortcuts. Uninstall from *Settings → Apps*; it asks before deleting your library.
 - **Without installing:** `WaterLauncher.exe` from the same release runs from any folder.
-- **Updates:** checked on GitHub twice a day (*Settings → General*). New versions download in the background and install the next time WaterLauncher starts. Each one is checked against the SHA-256 published with it.
+- **Updates:** checked on GitHub twice a day (*Settings → General*). New versions download in the background and install the next time WaterLauncher starts. Each one must be signed with a release key that never leaves the maintainer's PC ([docs/RELEASING.md](docs/RELEASING.md)).
 - **Start with Windows:** *Settings → General*. WaterLauncher then waits in the tray.
+- **Games started elsewhere:** start a library game from Steam or a shortcut and WaterLauncher still counts its playtime and lets go of the controller (*Settings → Big picture → While playing*).
 - **Command line:** `--play <id>` starts a game without the interface (for shortcuts), `--tray` starts in the tray, `--quit` closes a running WaterLauncher.
 - **Your data:** `%APPDATA%\WaterLauncher` (library, settings, encrypted keys, log) and `%LOCALAPPDATA%\WaterLauncher` (art, the game database, add-ons, updates).
 

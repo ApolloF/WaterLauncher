@@ -271,6 +271,14 @@ Checked and fine: no known vulnerabilities in Go modules (govulncheck) or npm pa
 
 Recommendations 1 to 4 of section 17, on `feature/v1.1`. Order: 3, 2, 4 (code only), then 1 (needs decisions and accounts from the user). Each part lands with tests and a measurement, then one v1.1.0 release.
 
+**Status (2026-09-26):** A, B, C and D1 done; D2 prepared, waiting for SignPath's approval. Outcomes:
+
+- A: repeat enrich of 100 generated games (1,000 files each) 700–830 ms → 8 ms; repeat scans on this PC 63 ms → 18 ms.
+- B: private bytes in the tray 79 MB → 62 MB. The < 50 MB goal isn't reachable with Wails: a bare Wails v3 app is 46 MB here (importing it loads shell32 and friends at init; a plain Go program is 12 MB). What's left of ours is ~16 MB. The heap profile showed the game database index as nearly all of the Go heap.
+- C: done as planned; checked by hand with a folder game started from Explorer.
+- D1: key made 2026-09-26 on the maintainer's PC (public key in `internal/update/keys.go`); CI makes drafts; `tools/release` signs and publishes. **The offline backup has to be made by the maintainer** (it asks for a password).
+- D2: CI steps for SignPath (two signing rounds, uninstaller built separately with `-DINNER` / `-DSIGNED_UNINSTALLER`, checked locally by installing and uninstalling with a separately built uninstaller). Setup steps in [SIGNING.md](SIGNING.md).
+
 ### A. Scan cost per game (recommendation 3)
 
 Problem: `DetectEmulation` walks each game folder (up to 30,000 entries, 7 levels) and `PickExe` walks it again (20,000 entries, 4 levels) on every scan: 5–30 ms per game here, seconds with hundreds of games.
