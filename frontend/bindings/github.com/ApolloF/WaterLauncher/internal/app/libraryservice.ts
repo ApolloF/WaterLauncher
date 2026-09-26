@@ -50,6 +50,13 @@ export function Games(): $CancellablePromise<library$0.Game[] | null> {
 }
 
 /**
+ * Install asks the game's store to install it (owned, not installed).
+ */
+export function Install(id: number): $CancellablePromise<void> {
+    return $Call.ByID(2311012180, id);
+}
+
+/**
  * MetaState reports metadata fetching progress.
  */
 export function MetaState(): $CancellablePromise<$models.MetaState> {

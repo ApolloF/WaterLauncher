@@ -6,6 +6,15 @@
 import * as syncer$0 from "../syncer/models.js";
 
 /**
+ * Accounts are the store accounts owned games come from.
+ */
+export interface Accounts {
+    "steam": StoreAccount;
+    "gog": StoreAccount;
+    "epic": StoreAccount;
+}
+
+/**
  * AddonAction is something an add-on can do for a game.
  */
 export interface AddonAction {
@@ -157,5 +166,26 @@ export interface ScanState {
      * titles in the game database; 0 until it's downloaded
      */
     "known": number;
+    "error"?: string;
+}
+
+/**
+ * StoreAccount is one store account as Settings shows it.
+ */
+export interface StoreAccount {
+    "connected": boolean;
+
+    /**
+     * the store is on this PC (GOG: Galaxy's library)
+     */
+    "available": boolean;
+    "name"?: string;
+    "games": number;
+
+    /**
+     * unix seconds
+     */
+    "synced"?: number;
+    "syncing": boolean;
     "error"?: string;
 }

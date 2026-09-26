@@ -20,6 +20,8 @@ type Settings struct {
 	DetectUnofficial bool     `json:"detectUnofficial"` // recognise Steam emulators, cracks and repacks
 	ReviewUncertain  bool     `json:"reviewUncertain"`  // keep low-confidence matches in Found on this PC
 	ShowNotInstalled bool     `json:"showNotInstalled"` // list games that aren't installed (anymore)
+	ShowOwned        bool     `json:"showOwned"`        // list games connected store accounts own but aren't installed
+	OwnedGOG         bool     `json:"ownedGOG"`         // read GOG Galaxy's library for owned games
 
 	// Appearance
 	Theme            string `json:"theme"`            // system, dark, light (desktop mode)

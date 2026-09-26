@@ -51,7 +51,12 @@
     feedback.move();
   };
   const play = (g: Game) => {
-    if (!g.installed) return feedback.error();
+    if (!g.installed) {
+      // Owned but not installed: its page offers the store's install.
+      if (g.installUri) sheetId = g.id;
+      else feedback.error();
+      return;
+    }
     sheetId = null;
     lib.play(g);
   };

@@ -33,6 +33,16 @@ export interface Settings {
     "showNotInstalled": boolean;
 
     /**
+     * list games connected store accounts own but aren't installed
+     */
+    "showOwned": boolean;
+
+    /**
+     * read GOG Galaxy's library for owned games
+     */
+    "ownedGOG": boolean;
+
+    /**
      * Appearance
      * system, dark, light (desktop mode)
      */

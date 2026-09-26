@@ -39,6 +39,8 @@ export interface Game {
   workDir?: string;
   launchUri?: string;
   userExe?: boolean;
+  owned?: boolean; // a connected store account owns it
+  installUri?: string; // asks the store to install it
   sizeBytes?: number;
   steamAppId?: number;
   metaAppId?: number;
@@ -70,6 +72,8 @@ export interface Settings {
   detectUnofficial: boolean;
   reviewUncertain: boolean;
   showNotInstalled: boolean;
+  showOwned: boolean;
+  ownedGOG: boolean;
   theme: "system" | "dark" | "light";
   bigPictureLayout: Layout;
   openBigPictureOnController: boolean;
@@ -221,6 +225,28 @@ export interface AddonGame {
   actions: AddonAction[];
   error?: string;
 }
+
+export interface StoreAccount {
+  connected: boolean;
+  available: boolean;
+  name?: string;
+  games: number;
+  synced?: number;
+  syncing: boolean;
+  error?: string;
+}
+
+export interface Accounts {
+  steam: StoreAccount;
+  gog: StoreAccount;
+  epic: StoreAccount;
+}
+
+/** Only known from a store account: never found on this PC. */
+export const ownedOnly = (g: Game) => g.key.startsWith("owned:");
+
+/** The store's name for an install button. */
+export const storeName = (g: Game) => ({ steam: "Steam", gog: "GOG Galaxy", epic: "Epic" })[g.source] ?? "its store";
 
 export interface AppInfo {
   version: string;

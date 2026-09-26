@@ -1,7 +1,7 @@
 // Made-up library for `npm run dev:mock`: the games from the design canvas,
 // covering every way a game can be found.
 import type { Api } from "./api";
-import type { AddonGame, AddonView, AppInfo, Game, MetaState, Saves, ScanState, Session, Settings } from "./types";
+import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, Saves, ScanState, Session, Settings } from "./types";
 import { sessionActive } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
@@ -61,6 +61,8 @@ let settings: Settings = {
   glyphs: "auto",
   closeWhilePlaying: true,
   padWhilePlaying: "listen",
+  showOwned: false,
+  ownedGOG: false,
   syncSavesBefore: true,
   backupSavesAfter: true,
 };
@@ -103,6 +105,23 @@ function update(id: number, fn: (g: Game) => void): Promise<Game> {
   fn(g);
   libListeners.forEach((cb) => cb());
   return Promise.resolve(clone(g));
+}
+
+// ---- pretend store accounts ----
+
+let accounts: Accounts = {
+  steam: { connected: false, available: true, games: 0, syncing: false },
+  gog: { connected: false, available: true, games: 0, syncing: false },
+  epic: { connected: false, available: true, games: 0, syncing: false },
+};
+
+function addOwned() {
+  if (games.some((g) => g.key.startsWith("owned:"))) return;
+  const list: [string, number][] = [["Portal 2", 620], ["Hades", 1145360], ["Celeste", 504230]];
+  for (const [title, appId] of list) {
+    games.push(game({ title, key: "owned:steam:" + appId, installed: false, owned: true, steamAppId: appId, installUri: "steam://install/" + appId, how: "Owned on Steam", matchHow: "Owned on Steam", initial: true, storePlaytime: appId === 620 ? 20 * 3600 : 0 }));
+  }
+  libListeners.forEach((cb) => cb());
 }
 
 // ---- a pretend add-on ----
@@ -204,6 +223,7 @@ export const mockApi: Api = {
   confirmMatch: (id) => update(id, (g) => ((g.confirmed = true), (g.needsReview = false))),
   chooseExe: (id) => update(id, (g) => ((g.exe = g.dir + "\\Game.exe"), (g.userExe = true))),
   async openFolder() {},
+  async install() {},
   async metaState(): Promise<MetaState> {
     return { running: false, done: 0, total: 0 };
   },
@@ -265,6 +285,38 @@ export const mockApi: Api = {
     },
     async openSyncer() {},
     async getSyncer() {},
+  },
+  accounts: {
+    async get() {
+      return clone(accounts);
+    },
+    sync() {},
+    async setSteamKey(k) {
+      await wait(600);
+      if (k && !/^[0-9A-Fa-f]{32}$/.test(k)) throw new Error("that doesn't look like a Steam Web API key (32 letters and digits)");
+      accounts = { ...accounts, steam: { ...accounts.steam, connected: !!k, games: k ? 214 : 0, synced: k ? Math.floor(Date.now() / 1000) : 0 } };
+      if (k) addOwned();
+      return clone(accounts);
+    },
+    async openSteamKeyPage() {},
+    async setGOG(on) {
+      accounts = { ...accounts, gog: { ...accounts.gog, connected: on, games: on ? 31 : 0 } };
+      return clone(accounts);
+    },
+    async openEpicSignIn() {},
+    async epicSignIn(p) {
+      await wait(600);
+      if (!/[0-9a-f]{32}/.test(p)) throw new Error("paste the authorizationCode the Epic page showed after signing in");
+      accounts = { ...accounts, epic: { ...accounts.epic, connected: true, name: "Player One", games: 87 } };
+      return clone(accounts);
+    },
+    async epicSignOut() {
+      accounts = { ...accounts, epic: { connected: false, available: true, games: 0, syncing: false } };
+      return clone(accounts);
+    },
+    onChange() {
+      return () => {};
+    },
   },
   addons: {
     async list() {

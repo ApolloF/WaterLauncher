@@ -44,6 +44,16 @@ export interface Game {
      * the user picked the executable; scans leave it alone
      */
     "userExe"?: boolean;
+
+    /**
+     * a connected store account owns it
+     */
+    "owned"?: boolean;
+
+    /**
+     * asks the store to install it
+     */
+    "installUri"?: string;
     "sizeBytes"?: number;
     "steamAppId"?: number;
 

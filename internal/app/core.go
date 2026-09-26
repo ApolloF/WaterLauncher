@@ -52,6 +52,7 @@ type Core struct {
 	Manifest *identify.Manager
 	Launch   *launch.Manager
 	addons   *addonState
+	owned    *ownedState
 
 	shell       *Shell
 	pad         atomic.Pointer[pad.Manager]
@@ -84,6 +85,7 @@ func NewCore(version string) (*Core, error) {
 	c.meta = newMetaWorker(c)
 	c.Launch = launch.NewManager(c.onSession)
 	c.addons = newAddonState(version)
+	c.owned = newOwnedState(c)
 	return c, nil
 }
 
@@ -92,6 +94,7 @@ func NewCore(version string) (*Core, error) {
 func (c *Core) Start() {
 	go c.scanLoop()
 	go c.meta.run(c.ctx)
+	go c.owned.loop(c.ctx)
 	c.RequestScan()
 	go func() {
 		if !c.Manifest.Stale() {

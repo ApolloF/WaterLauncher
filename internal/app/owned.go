@@ -1,0 +1,298 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"sync"
+	"time"
+
+	"github.com/ApolloF/WaterLauncher/internal/library"
+	"github.com/ApolloF/WaterLauncher/internal/logx"
+	"github.com/ApolloF/WaterLauncher/internal/owned"
+	"github.com/ApolloF/WaterLauncher/internal/platform"
+	"github.com/wailsapp/wails/v3/pkg/application"
+)
+
+// EventAccounts tells the interface the store accounts changed.
+const EventAccounts = "accounts:changed"
+
+func init() { application.RegisterEvent[Accounts](EventAccounts) }
+
+const (
+	steamKeySecret = "steam-webapi"
+	epicSecret     = "epic-account"
+	ownedEvery     = 12 * time.Hour
+)
+
+// StoreAccount is one store account as Settings shows it.
+type StoreAccount struct {
+	Connected bool   `json:"connected"`
+	Available bool   `json:"available"` // the store is on this PC (GOG: Galaxy's library)
+	Name      string `json:"name,omitempty"`
+	Games     int    `json:"games"`
+	Synced    int64  `json:"synced,omitempty"` // unix seconds
+	Syncing   bool   `json:"syncing"`
+	Error     string `json:"error,omitempty"`
+}
+
+// Accounts are the store accounts owned games come from.
+type Accounts struct {
+	Steam StoreAccount `json:"steam"`
+	GOG   StoreAccount `json:"gog"`
+	Epic  StoreAccount `json:"epic"`
+}
+
+type epicAccount struct {
+	Refresh string `json:"refresh"`
+	Account string `json:"account"`
+	Name    string `json:"name"`
+}
+
+// ownedState syncs owned games from the connected accounts.
+type ownedState struct {
+	c      *Core
+	client *owned.Client
+
+	mu     sync.Mutex
+	status map[string]StoreAccount // steam, gog, epic: last sync outcome
+	busy   bool
+}
+
+func newOwnedState(c *Core) *ownedState {
+	return &ownedState{c: c, client: owned.NewClient(), status: map[string]StoreAccount{}}
+}
+
+func loadEpic() (epicAccount, bool) {
+	var a epicAccount
+	s := platform.LoadSecret(epicSecret)
+	if s == "" || json.Unmarshal([]byte(s), &a) != nil || a.Refresh == "" {
+		return a, false
+	}
+	return a, true
+}
+
+func saveEpic(a epicAccount) error {
+	b, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	return platform.SaveSecret(epicSecret, string(b))
+}
+
+// accounts reports the accounts and their last sync.
+func (o *ownedState) accounts() Accounts {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	a := Accounts{Steam: o.status["steam"], GOG: o.status["gog"], Epic: o.status["epic"]}
+	a.Steam.Connected = platform.LoadSecret(steamKeySecret) != ""
+	a.Steam.Available = true
+	a.GOG.Available = owned.GalaxyDB() != ""
+	a.GOG.Connected = o.c.Settings.Get().OwnedGOG && a.GOG.Available
+	ep, ok := loadEpic()
+	a.Epic.Connected, a.Epic.Available = ok, true
+	if ok {
+		a.Epic.Name = ep.Name
+	}
+	for _, s := range []*StoreAccount{&a.Steam, &a.GOG, &a.Epic} {
+		s.Syncing = o.busy && s.Connected
+	}
+	return a
+}
+
+func (o *ownedState) setStatus(store string, fn func(*StoreAccount)) {
+	o.mu.Lock()
+	s := o.status[store]
+	fn(&s)
+	o.status[store] = s
+	o.mu.Unlock()
+}
+
+// sync fetches every connected account's games and merges them.
+func (o *ownedState) sync(ctx context.Context) {
+	o.mu.Lock()
+	if o.busy {
+		o.mu.Unlock()
+		return
+	}
+	o.busy = true
+	o.mu.Unlock()
+	o.c.emit(EventAccounts, o.accounts())
+	defer func() {
+		o.mu.Lock()
+		o.busy = false
+		o.mu.Unlock()
+		o.c.emit(EventAccounts, o.accounts())
+		o.c.emit(EventLibraryChanged, "owned")
+		o.c.meta.queueMissing()
+	}()
+	if key := platform.LoadSecret(steamKeySecret); key != "" {
+		o.run(ctx, "steam", func(ctx context.Context) ([]library.Owned, error) {
+			id, err := owned.SteamID()
+			if err != nil {
+				return nil, err
+			}
+			return o.client.Steam(ctx, key, id)
+		})
+	}
+	if o.c.Settings.Get().OwnedGOG {
+		o.run(ctx, "gog", func(context.Context) ([]library.Owned, error) { return owned.GOG(owned.GalaxyDB()) })
+	}
+	if ep, ok := loadEpic(); ok {
+		o.run(ctx, "epic", func(ctx context.Context) ([]library.Owned, error) {
+			tok, err := o.client.EpicRefresh(ctx, ep.Refresh)
+			if err != nil {
+				return nil, err
+			}
+			// Epic hands out a new refresh token each time; keep the newest.
+			ep.Refresh = tok.RefreshToken
+			if err := saveEpic(ep); err != nil {
+				logx.Printf("owned: saving Epic sign-in: %v", err)
+			}
+			return o.client.Epic(ctx, tok.AccessToken)
+		})
+	}
+}
+
+func (o *ownedState) run(ctx context.Context, store string, fetch func(context.Context) ([]library.Owned, error)) {
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	games, err := fetch(cctx)
+	if err != nil {
+		logx.Printf("owned %s: %v", store, err)
+		o.setStatus(store, func(s *StoreAccount) { s.Error = err.Error() })
+		return
+	}
+	added, removed := o.c.Lib.ApplyOwned(store, games, time.Now())
+	logx.Printf("owned %s: %d games (%d new, %d gone)", store, len(games), added, removed)
+	o.setStatus(store, func(s *StoreAccount) {
+		s.Error, s.Games, s.Synced = "", len(games), time.Now().Unix()
+	})
+}
+
+// loop syncs a little after start and then twice a day.
+func (o *ownedState) loop(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(20 * time.Second):
+	}
+	for {
+		o.sync(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(ownedEvery):
+		}
+	}
+}
+
+// ---- the service ----
+
+// AccountsService connects store accounts for owned games.
+type AccountsService struct{ c *Core }
+
+// NewAccountsService binds accounts to core.
+func NewAccountsService(c *Core) *AccountsService { return &AccountsService{c} }
+
+// Get reports the accounts.
+func (s *AccountsService) Get() Accounts { return s.c.owned.accounts() }
+
+// Sync fetches the owned games again, in the background.
+func (s *AccountsService) Sync() { go s.c.owned.sync(s.c.ctx) }
+
+// SetSteamKey stores the user's Steam Web API key (encrypted for this
+// Windows user) and fetches the account's games; "" disconnects Steam.
+func (s *AccountsService) SetSteamKey(key string) (Accounts, error) {
+	if key == "" {
+		if err := platform.SaveSecret(steamKeySecret, ""); err != nil {
+			return s.Get(), err
+		}
+		s.c.Lib.ForgetOwned("steam")
+		s.c.owned.setStatus("steam", func(a *StoreAccount) { *a = StoreAccount{} })
+		s.c.emit(EventLibraryChanged, "owned")
+		return s.Get(), nil
+	}
+	if !owned.ValidSteamKey(key) {
+		return s.Get(), errors.New("that doesn't look like a Steam Web API key (32 letters and digits)")
+	}
+	id, err := owned.SteamID()
+	if err != nil {
+		return s.Get(), err
+	}
+	ctx, cancel := context.WithTimeout(s.c.ctx, time.Minute)
+	defer cancel()
+	games, err := s.c.owned.client.Steam(ctx, key, id)
+	if err != nil {
+		return s.Get(), err
+	}
+	if err := platform.SaveSecret(steamKeySecret, key); err != nil {
+		return s.Get(), err
+	}
+	added, _ := s.c.Lib.ApplyOwned("steam", games, time.Now())
+	logx.Printf("owned steam: connected, %d games (%d new)", len(games), added)
+	s.c.owned.setStatus("steam", func(a *StoreAccount) { *a = StoreAccount{Games: len(games), Synced: time.Now().Unix()} })
+	s.c.emit(EventLibraryChanged, "owned")
+	s.c.meta.queueMissing()
+	return s.Get(), nil
+}
+
+// OpenSteamKeyPage opens Steam's page for creating a Web API key.
+func (s *AccountsService) OpenSteamKeyPage() error {
+	return platform.OpenWebPage("https://steamcommunity.com/dev/apikey")
+}
+
+// SetGOG turns reading GOG Galaxy's library on or off.
+func (s *AccountsService) SetGOG(on bool) (Accounts, error) {
+	v := s.c.Settings.Get()
+	v.OwnedGOG = on
+	if _, err := s.c.Settings.Set(v); err != nil {
+		return s.Get(), err
+	}
+	if on {
+		s.c.owned.run(s.c.ctx, "gog", func(context.Context) ([]library.Owned, error) { return owned.GOG(owned.GalaxyDB()) })
+		s.c.meta.queueMissing()
+	} else {
+		s.c.Lib.ForgetOwned("gog")
+		s.c.owned.setStatus("gog", func(a *StoreAccount) { *a = StoreAccount{} })
+	}
+	s.c.emit(EventLibraryChanged, "owned")
+	return s.Get(), nil
+}
+
+// OpenEpicSignIn opens Epic's sign-in page in the browser.
+func (s *AccountsService) OpenEpicSignIn() error { return platform.OpenWebPage(owned.EpicLoginURL) }
+
+// EpicSignIn finishes the Epic sign-in with the code the page showed
+// (the code alone, or the whole text) and fetches the account's games.
+func (s *AccountsService) EpicSignIn(pasted string) (Accounts, error) {
+	code, ok := owned.EpicCode(pasted)
+	if !ok {
+		return s.Get(), errors.New("paste the authorizationCode the Epic page showed after signing in")
+	}
+	ctx, cancel := context.WithTimeout(s.c.ctx, 2*time.Minute)
+	defer cancel()
+	tok, err := s.c.owned.client.EpicSignIn(ctx, code)
+	if err != nil {
+		return s.Get(), err
+	}
+	if err := saveEpic(epicAccount{Refresh: tok.RefreshToken, Account: tok.AccountID, Name: tok.DisplayName}); err != nil {
+		return s.Get(), err
+	}
+	logx.Printf("owned epic: signed in")
+	s.c.owned.run(ctx, "epic", func(ctx context.Context) ([]library.Owned, error) { return s.c.owned.client.Epic(ctx, tok.AccessToken) })
+	s.c.emit(EventLibraryChanged, "owned")
+	s.c.meta.queueMissing()
+	return s.Get(), nil
+}
+
+// EpicSignOut forgets the Epic sign-in and its owned games.
+func (s *AccountsService) EpicSignOut() (Accounts, error) {
+	if err := platform.SaveSecret(epicSecret, ""); err != nil {
+		return s.Get(), err
+	}
+	s.c.Lib.ForgetOwned("epic")
+	s.c.owned.setStatus("epic", func(a *StoreAccount) { *a = StoreAccount{} })
+	s.c.emit(EventLibraryChanged, "owned")
+	return s.Get(), nil
+}

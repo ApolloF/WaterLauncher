@@ -1,7 +1,7 @@
 import { Events, Window } from "@wailsio/runtime";
-import { AddonsService, LaunchService, LibraryService, PadService, SavesService, SettingsService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
+import { AccountsService, AddonsService, LaunchService, LibraryService, PadService, SavesService, SettingsService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
 import type { Api } from "./api";
-import type { AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, StoreHit } from "./types";
+import type { Accounts, AddonGame, AddonView, AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, StoreHit } from "./types";
 
 // The generated bindings return the Go structs; their JSON matches ./types.
 const g = (p: Promise<unknown>) => p as Promise<Game>;
@@ -17,6 +17,7 @@ export const realApi: Api = {
   confirmMatch: (id) => g(LibraryService.ConfirmMatch(id)),
   chooseExe: (id) => g(LibraryService.ChooseExe(id)),
   openFolder: (id) => LibraryService.OpenFolder(id),
+  install: (id) => LibraryService.Install(id),
   metaState: () => LibraryService.MetaState() as Promise<unknown> as Promise<MetaState>,
   refreshMetadata: (id) => LibraryService.RefreshMetadata(id),
   searchSteam: (q) => LibraryService.SearchSteam(q).then((h) => (h ?? []) as unknown as StoreHit[]),
@@ -40,6 +41,18 @@ export const realApi: Api = {
     get: (id, fresh = false) => SavesService.Saves(id, fresh) as Promise<unknown> as Promise<Saves>,
     openSyncer: () => SavesService.OpenSyncer(),
     getSyncer: () => SavesService.GetSyncer(),
+  },
+
+  accounts: {
+    get: () => AccountsService.Get() as Promise<unknown> as Promise<Accounts>,
+    sync: () => void AccountsService.Sync(),
+    setSteamKey: (k) => AccountsService.SetSteamKey(k) as Promise<unknown> as Promise<Accounts>,
+    openSteamKeyPage: () => AccountsService.OpenSteamKeyPage(),
+    setGOG: (on) => AccountsService.SetGOG(on) as Promise<unknown> as Promise<Accounts>,
+    openEpicSignIn: () => AccountsService.OpenEpicSignIn(),
+    epicSignIn: (p) => AccountsService.EpicSignIn(p) as Promise<unknown> as Promise<Accounts>,
+    epicSignOut: () => AccountsService.EpicSignOut() as Promise<unknown> as Promise<Accounts>,
+    onChange: (cb) => Events.On("accounts:changed", (e) => cb(e.data as unknown as Accounts)),
   },
 
   addons: {

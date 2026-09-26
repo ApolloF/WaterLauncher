@@ -54,11 +54,16 @@ func newMetaWorker(c *Core) *metaWorker {
 	return w
 }
 
-// queueMissing queues installed games without (fresh) metadata.
+// queueMissing queues installed games without (fresh) metadata, and
+// owned games that aren't installed when those are shown.
 func (w *metaWorker) queueMissing() {
 	hasKey := platform.LoadSecret(sgdbSecret) != ""
+	showOwned := w.c.Settings.Get().ShowOwned
 	games := w.c.Lib.Games()
 	sort.SliceStable(games, func(i, j int) bool {
+		if games[i].Installed != games[j].Installed {
+			return games[i].Installed // installed games first
+		}
 		a := max(games[i].LastPlayed, games[i].StoreLastPlayed)
 		b := max(games[j].LastPlayed, games[j].StoreLastPlayed)
 		return a > b
@@ -66,7 +71,7 @@ func (w *metaWorker) queueMissing() {
 	now := time.Now()
 	w.mu.Lock()
 	for _, g := range games {
-		if !g.Installed || g.Hidden || w.queued[g.ID] {
+		if !(g.Installed || showOwned && g.Owned) || g.Hidden || w.queued[g.ID] {
 			continue
 		}
 		if t, ok := w.failed[g.ID]; ok && now.Sub(t) < metaRetryGap {

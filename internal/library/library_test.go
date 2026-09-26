@@ -103,3 +103,62 @@ func TestConfirmedMatchSurvivesRescan(t *testing.T) {
 		t.Errorf("confirmed match lost: %+v", g)
 	}
 }
+
+func TestOwnedGames(t *testing.T) {
+	s, _ := Open(filepath.Join(t.TempDir(), "library.json"))
+	now := time.Now()
+	// A Steam game installed here, and two owned elsewhere.
+	s.ApplyScan([]Found{{Key: `c:\steam\common\portal`, Title: "Portal", SortTitle: "portal", Source: "steam", SteamAppID: 400, Dir: `C:\Steam\common\Portal`}}, now)
+	added, _ := s.ApplyOwned("steam", []Owned{
+		{Store: "steam", ID: "400", Title: "Portal", InstallURI: "steam://install/400", Playtime: 3600},
+		{Store: "steam", ID: "620", Title: "Portal 2", InstallURI: "steam://install/620", Playtime: 7200},
+		{Store: "steam", ID: "", Title: "No id"},
+	}, now)
+	if added != 1 {
+		t.Fatalf("added = %d, want 1 (Portal is already here)", added)
+	}
+	var portal, portal2 Game
+	for _, g := range s.Games() {
+		switch g.Title {
+		case "Portal":
+			portal = g
+		case "Portal 2":
+			portal2 = g
+		}
+	}
+	if !portal.Owned || !portal.Installed || portal.InstallURI == "" || portal.StorePlaytime != 3600 {
+		t.Errorf("installed + owned = %+v", portal)
+	}
+	if portal2.Installed || !portal2.Owned || !portal2.IsOwnedOnly() || portal2.SteamAppID != 620 || !portal2.Initial {
+		t.Errorf("owned only = %+v", portal2)
+	}
+
+	// The user favourites Portal 2, then installs it: one game remains, favourite kept.
+	s.Update(portal2.ID, func(g *Game) { g.Favorite = true })
+	s.ApplyScan([]Found{
+		{Key: `c:\steam\common\portal`, Title: "Portal", SortTitle: "portal", Source: "steam", SteamAppID: 400},
+		{Key: `c:\steam\common\portal 2`, Title: "Portal 2", SortTitle: "portal 2", Source: "steam", SteamAppID: 620},
+	}, now)
+	var both []Game
+	for _, g := range s.Games() {
+		if g.SteamAppID == 620 {
+			both = append(both, g)
+		}
+	}
+	if len(both) != 1 || !both[0].Installed || !both[0].Favorite || !both[0].Owned || both[0].IsOwnedOnly() {
+		t.Errorf("after install = %+v", both)
+	}
+
+	// The account stops listing a game: owned-only games go, found ones stay.
+	s.ApplyOwned("steam", []Owned{{Store: "steam", ID: "730", Title: "CS2"}}, now)
+	_, removed := s.ApplyOwned("steam", nil, now)
+	if removed != 1 || len(s.Games()) != 2 {
+		t.Errorf("removed %d, games %d", removed, len(s.Games()))
+	}
+	s.ForgetOwned("steam")
+	for _, g := range s.Games() {
+		if g.Owned {
+			t.Errorf("%s still owned after disconnecting", g.Title)
+		}
+	}
+}

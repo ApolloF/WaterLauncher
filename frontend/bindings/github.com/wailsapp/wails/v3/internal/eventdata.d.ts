@@ -18,6 +18,7 @@ import type * as pad$0 from "../../../../ApolloF/WaterLauncher/internal/pad/mode
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "accounts:changed": app$0.Accounts;
             "addon:progress": app$0.AddonProgress;
             "launch:session": launch$0.Session;
             "library:changed": string;

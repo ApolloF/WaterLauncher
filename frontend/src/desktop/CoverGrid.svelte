@@ -131,7 +131,7 @@
           {/if}
         </button>
         <span class="name">{title(g)}</span>
-        <span class="sub">{g.installed ? (played(g) ? playtime(played(g)) : g.sourceLabel) : "Not installed"}</span>
+        <span class="sub">{g.installed ? (played(g) ? playtime(played(g)) : g.sourceLabel) : g.owned ? "Owned · " + g.sourceLabel : "Not installed"}</span>
       </div>
     {/each}
   </div>

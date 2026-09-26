@@ -121,6 +121,19 @@ func (s *LibraryService) ChooseExe(id int64) (library.Game, error) {
 	})
 }
 
+// Install asks the game's store to install it (owned, not installed).
+func (s *LibraryService) Install(id int64) error {
+	g, ok := s.c.Lib.Get(id)
+	if !ok {
+		return library.ErrNotFound
+	}
+	if g.InstallURI == "" {
+		return errors.New(g.DisplayTitle() + " can't be installed from here")
+	}
+	logx.Printf("install %q through its store", g.DisplayTitle())
+	return platform.OpenURI(g.InstallURI)
+}
+
 // MetaState reports metadata fetching progress.
 func (s *LibraryService) MetaState() MetaState { return s.c.meta.State() }
 
@@ -214,6 +227,9 @@ func (s *SettingsService) Save(v settings.Settings) (settings.Settings, error) {
 	saved, err := s.c.Settings.Set(v)
 	if err != nil {
 		return saved, err
+	}
+	if saved.ShowOwned && !old.ShowOwned {
+		s.c.meta.queueMissing()
 	}
 	if !sameStrings(old.Folders, saved.Folders) || old.AutoFolders != saved.AutoFolders ||
 		old.DetectUnofficial != saved.DetectUnofficial || old.ReviewUncertain != saved.ReviewUncertain {

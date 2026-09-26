@@ -2,3 +2,5 @@
 *.png binary
 *.ico binary
 *.dll binary
+*.db binary
+*.db-wal binary
