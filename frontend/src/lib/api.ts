@@ -1,7 +1,7 @@
 // The frontend's one door to the Go side. In mock mode (`npm run dev:mock`)
 // the same interface is served by made-up data, so the interface can be
 // built and checked in a normal browser. Vite drops the unused one.
-import type { AppInfo, Game, MetaState, PadState, ScanState, Settings, StoreHit } from "./types";
+import type { AppInfo, Game, MetaState, PadState, ScanState, Session, Settings, StoreHit } from "./types";
 import { realApi } from "./api.real";
 import { mockApi } from "./api.mock";
 
@@ -15,7 +15,6 @@ export interface Api {
   rename(id: number, title: string): Promise<Game>;
   confirmMatch(id: number): Promise<Game>;
   chooseExe(id: number): Promise<Game>;
-  play(id: number): Promise<void>;
   openFolder(id: number): Promise<void>;
   metaState(): Promise<MetaState>;
   refreshMetadata(id: number): Promise<void>;
@@ -35,6 +34,23 @@ export interface Api {
   onLibraryChanged(cb: () => void): () => void;
   onScanState(cb: (s: ScanState) => void): () => void;
   onMetaState(cb: (s: MetaState) => void): () => void;
+
+  launch: {
+    play(id: number): Promise<void>;
+    session(): Promise<Session>;
+    skip(stepId: string): void;
+    answer(questionId: number, option: string): void;
+    cancel(): void;
+    quitGame(): Promise<void>;
+    setUIMode(mode: "desktop" | "bigpicture"): void;
+    closeOverlay(): void;
+    openMain(): void;
+    onSession(cb: (s: Session) => void): () => void;
+    /** Controller actions while the in-game overlay shows. */
+    onOverlayAction(cb: (action: string, repeat: boolean) => void): () => void;
+    /** The tray asks for a mode. */
+    onUIMode(cb: (mode: "desktop" | "bigpicture") => void): () => void;
+  };
 
   window: {
     minimise(): void;

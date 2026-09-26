@@ -4,7 +4,7 @@
   // extra height rather than black bars.
   import type { Snippet } from "svelte";
 
-  let { children }: { children: Snippet<[{ height: number }]> } = $props();
+  let { children, clear = false }: { children: Snippet<[{ height: number }]>; clear?: boolean } = $props();
 
   const W = 1920;
   let vw = $state(window.innerWidth);
@@ -17,7 +17,7 @@
 
 <svelte:window bind:innerWidth={vw} bind:innerHeight={vh} />
 
-<div class="viewport">
+<div class="viewport" class:clear>
   <div class="stage" style:width="{W}px" style:height="{fits ? height : 1080}px" style:transform="translate(-50%, -50%) scale({s})">
     {@render children({ height: fits ? height : 1080 })}
   </div>
@@ -29,6 +29,9 @@
     inset: 0;
     overflow: hidden;
     background: #05070a;
+  }
+  .viewport.clear {
+    background: transparent;
   }
   .stage {
     position: absolute;

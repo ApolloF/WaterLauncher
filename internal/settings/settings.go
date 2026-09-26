@@ -33,6 +33,10 @@ type Settings struct {
 	Lightbar                   bool   `json:"lightbar"`
 	PSButton                   bool   `json:"psButton"`
 	Glyphs                     string `json:"glyphs"` // auto, playstation, xbox
+
+	// While playing
+	CloseWhilePlaying bool   `json:"closeWhilePlaying"` // close the interface while a game runs (frees its memory)
+	PadWhilePlaying   string `json:"padWhilePlaying"`   // listen (PS button opens the overlay), off (release the controller)
 }
 
 // Defaults are the settings on first start.
@@ -41,6 +45,7 @@ func Defaults() Settings {
 		Folders: []string{}, AutoFolders: true, DetectUnofficial: true, ReviewUncertain: true,
 		Theme: "system", BigPictureLayout: "deck",
 		OpenBigPictureOnController: true, Haptics: true, Lightbar: true, PSButton: true, Glyphs: "auto",
+		CloseWhilePlaying: true, PadWhilePlaying: "listen",
 	}
 }
 
@@ -122,6 +127,11 @@ func normalize(v Settings) Settings {
 	case "deck", "console", "orbit":
 	default:
 		v.BigPictureLayout = "deck"
+	}
+	switch v.PadWhilePlaying {
+	case "listen", "off":
+	default:
+		v.PadWhilePlaying = "listen"
 	}
 	switch v.Glyphs {
 	case "auto", "playstation", "xbox":

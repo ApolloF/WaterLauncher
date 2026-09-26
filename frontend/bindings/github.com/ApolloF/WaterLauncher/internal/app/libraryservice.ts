@@ -64,13 +64,6 @@ export function OpenFolder(id: number): $CancellablePromise<void> {
 }
 
 /**
- * Play starts a game.
- */
-export function Play(id: number): $CancellablePromise<void> {
-    return $Call.ByID(767287191, id);
-}
-
-/**
  * RefreshMetadata fetches a game's metadata and art again.
  */
 export function RefreshMetadata(id: number): $CancellablePromise<void> {

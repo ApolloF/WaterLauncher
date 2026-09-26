@@ -94,12 +94,14 @@ type Manager struct {
 	onAction func(action string, repeat bool)
 	onState  func(State)
 
-	cmds chan func(*sdl)
-	quit chan struct{}
-	done chan struct{}
+	cmds   chan func(*sdl)
+	modeCh chan Mode
+	quit   chan struct{}
+	done   chan struct{}
 
 	mu    sync.Mutex
 	state State
+	mode  Mode
 }
 
 // Start loads SDL and begins reading controllers. onAction gets every
@@ -107,7 +109,7 @@ type Manager struct {
 // controller changes. Both are called from the SDL thread.
 func Start(onAction func(string, bool), onState func(State)) *Manager {
 	m := &Manager{onAction: onAction, onState: onState, cmds: make(chan func(*sdl), 16),
-		quit: make(chan struct{}), done: make(chan struct{})}
+		modeCh: make(chan Mode, 1), quit: make(chan struct{}), done: make(chan struct{})}
 	m.state.Battery = -1
 	go m.loop()
 	return m
@@ -128,6 +130,70 @@ func (m *Manager) Stop() {
 		close(m.quit)
 	}
 	<-m.done
+}
+
+// Mode is how much of the controller WaterLauncher uses.
+type Mode int
+
+const (
+	// Active is the full layer: input, rumble, lightbar.
+	Active Mode = iota
+	// Passive only listens, for while a game runs. Controllers are read
+	// without SDL's HIDAPI drivers, so WaterLauncher never writes to one
+	// or switches a DualSense or DualShock 4 into its enhanced report
+	// mode; the game gets the controller exactly as it expects. Actions
+	// keep coming (the PS button opens the overlay).
+	Passive
+	// Off releases controllers completely.
+	Off
+)
+
+// SetMode switches the controller layer's mode.
+func (m *Manager) SetMode(mode Mode) {
+	m.mu.Lock()
+	if m.mode == mode {
+		m.mu.Unlock()
+		return
+	}
+	m.mode = mode
+	m.mu.Unlock()
+	select {
+	case <-m.modeCh: // a switch nobody has acted on yet is replaced
+	default:
+	}
+	select {
+	case m.modeCh <- mode:
+	case <-m.quit:
+	}
+}
+
+// Mode returns the controller layer's mode.
+func (m *Manager) Mode() Mode {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.mode
+}
+
+// start sets SDL's hints and initialises its gamepad layer.
+func (m *Manager) start(s *sdl, passive bool) error {
+	hidapi, reports := "1", "auto"
+	if passive {
+		hidapi, reports = "0", "0"
+	}
+	// WaterLauncher has no SDL window, so SDL must deliver input no matter
+	// which window has focus.
+	for _, h := range [][2]string{
+		{"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1"},
+		{"SDL_JOYSTICK_HIDAPI_PS5_PLAYER_LED", "0"},
+		{"SDL_JOYSTICK_HIDAPI", hidapi},
+		{"SDL_JOYSTICK_ENHANCED_REPORTS", reports},
+	} {
+		s.setHint.Call(uintptr(unsafe.Pointer(cstr(h[0]))), uintptr(unsafe.Pointer(cstr(h[1]))))
+	}
+	if r, _, _ := s.init.Call(initGamepad); !ok(r) {
+		return errors.New(s.errorText())
+	}
+	return nil
 }
 
 // Rumble plays a short effect: "tick" (moving), "confirm" or "error".
@@ -170,6 +236,9 @@ func (m *Manager) SetLight(hex string) error {
 }
 
 func (m *Manager) do(fn func(*sdl)) {
+	if m.Mode() != Active {
+		return // no output reports while a game has the controller
+	}
 	select {
 	case m.cmds <- fn:
 	default: // the SDL thread is busy; a dropped effect doesn't matter
@@ -211,20 +280,17 @@ func (m *Manager) loop() {
 		<-m.quit
 		return
 	}
-	// WaterLauncher has no SDL window, so SDL must deliver input no matter
-	// which window has focus.
-	for k, v := range map[string]string{
-		"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS": "1",
-		"SDL_JOYSTICK_HIDAPI_PS5_PLAYER_LED":   "0",
-	} {
-		s.setHint.Call(uintptr(unsafe.Pointer(cstr(k))), uintptr(unsafe.Pointer(cstr(v))))
-	}
-	if r, _, _ := s.init.Call(initGamepad); !ok(r) {
-		m.setState(func(st *State) { st.Error = "controller support unavailable: " + s.errorText() })
+	if err := m.start(s, false); err != nil {
+		m.setState(func(st *State) { st.Error = "controller support unavailable: " + err.Error() })
 		<-m.quit
 		return
 	}
-	defer s.quit.Call()
+	off := false
+	defer func() {
+		if !off {
+			s.quit.Call()
+		}
+	}()
 
 	ev := make([]byte, 128)
 	held := map[string]time.Time{} // direction → next repeat time
@@ -253,10 +319,28 @@ func (m *Manager) loop() {
 		case fn := <-m.cmds:
 			fn(s)
 			continue
+		case mode := <-m.modeCh:
+			if !off {
+				m.closeAll(s)
+				s.quit.Call()
+			}
+			clear(held)
+			clear(axes)
+			off = mode == Off
+			if !off {
+				if err := m.start(s, mode == Passive); err != nil {
+					m.setState(func(st *State) { st.Error = "controller support unavailable: " + err.Error() })
+				}
+			}
+			m.refreshState(s)
+			continue
 		case <-battery.C:
 			m.refreshState(s)
 			continue
 		case <-tick.C:
+		}
+		if off {
+			continue
 		}
 		for {
 			r, _, _ := s.pollEvent.Call(uintptr(unsafe.Pointer(&ev[0])))

@@ -79,6 +79,8 @@ export interface Settings {
   lightbar: boolean;
   psButton: boolean;
   glyphs: "auto" | "playstation" | "xbox";
+  closeWhilePlaying: boolean;
+  padWhilePlaying: "listen" | "off";
 }
 
 export interface ScanState {
@@ -114,6 +116,40 @@ export interface PadState {
   wireless: boolean;
   error?: string;
 }
+
+export type Phase = "preparing" | "starting" | "running" | "finishing" | "ended" | "failed" | "cancelled" | "";
+
+export interface StepState {
+  id: string;
+  label: string;
+  status: "pending" | "running" | "done" | "skipped" | "failed";
+  detail?: string;
+}
+
+export interface Question {
+  id: number;
+  text: string;
+  options: { id: string; label: string }[];
+}
+
+/** A game being launched or played (or the last one). */
+export interface Session {
+  id: number;
+  gameId: number;
+  title: string;
+  phase: Phase;
+  route: "direct" | "store" | "steamInput" | "";
+  before: StepState[];
+  after: StepState[];
+  question?: Question;
+  startedAt?: number;
+  seconds: number;
+  error?: string;
+  note?: string;
+}
+
+export const sessionActive = (s: Session | null | undefined) =>
+  !!s && s.phase !== "" && s.phase !== "ended" && s.phase !== "failed" && s.phase !== "cancelled";
 
 export interface AppInfo {
   version: string;

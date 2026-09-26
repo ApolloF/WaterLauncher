@@ -63,6 +63,11 @@ body,
   overflow: hidden;
 }
 
+/* The in-game overlay window is see-through around its panel. */
+html.overlay-window body {
+  background: transparent;
+}
+
 body {
   background: var(--bg);
   color: var(--text);

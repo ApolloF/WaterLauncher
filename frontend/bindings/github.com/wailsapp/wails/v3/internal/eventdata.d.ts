@@ -10,16 +10,22 @@ import type { Events } from "@wailsio/runtime";
 import type * as app$0 from "../../../../ApolloF/WaterLauncher/internal/app/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import type * as launch$0 from "../../../../ApolloF/WaterLauncher/internal/launch/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import type * as pad$0 from "../../../../ApolloF/WaterLauncher/internal/pad/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "launch:session": launch$0.Session;
             "library:changed": string;
             "meta:state": app$0.MetaState;
+            "overlay:action": app$0.PadAction;
             "pad:action": app$0.PadAction;
             "pad:state": pad$0.State;
             "scan:state": app$0.ScanState;
+            "ui:mode": string;
         }
     }
 }

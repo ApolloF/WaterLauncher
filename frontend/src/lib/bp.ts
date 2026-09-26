@@ -3,6 +3,8 @@ import { artFor } from "./art";
 import { isFresh } from "./store.svelte";
 import { lastPlayed, played, title, type Game } from "./types";
 import { playtime, ago } from "./format";
+import { pad } from "./input.svelte";
+import { padExplain } from "./route";
 
 export const byRecent = (a: Game, b: Game) => lastPlayed(b) - lastPlayed(a) || a.sortTitle.localeCompare(b.sortTitle);
 export const byTitle = (a: Game, b: Game) => a.sortTitle.localeCompare(b.sortTitle);
@@ -41,11 +43,5 @@ export { title };
 
 /** What the controller mode will do, in words, for the big picture cards. */
 export function padSummary(g: Game): { short: string; long: string } {
-  const mode = g.padMode || "auto";
-  if (mode === "native") return { short: "Native", long: "Starts directly. The game handles the DualSense." };
-  if (mode === "steam") return { short: "Steam Input", long: "Starts through Steam Input as an Xbox controller." };
-  if (g.meta?.dualSense === "yes") return { short: "DualSense", long: "Supports DualSense natively." };
-  if (g.padHint === "libScePad") return { short: "DualSense", long: "Ships Sony's DualSense library." };
-  if (g.padHint === "SDL") return { short: "Native", long: "Uses SDL, which handles a DualSense itself." };
-  return { short: "Auto", long: "DualSense support unknown; starts directly." };
+  return padExplain(g, pad);
 }

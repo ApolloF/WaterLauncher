@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { AppInfo, Game, MetaState, ScanState, Settings } from "./types";
+import type { AppInfo, Game, MetaState, ScanState, Session, Settings } from "./types";
 import { lastPlayed, played, title } from "./types";
 
 export type FilterKind = "all" | "installed" | "notinstalled" | "favorites" | "recent" | "found" | "hidden";
@@ -40,6 +40,8 @@ class LibraryStore {
   scan = $state<ScanState>({ running: true, lastScan: 0, tookMs: 0, games: 0, added: 0, known: 0 });
   meta = $state<MetaState>({ running: false, done: 0, total: 0 });
   loaded = $state(false);
+  /** The game being launched or played (or the last one). */
+  session = $state<Session | null>(null);
 
   filter = $state<Filter>({ kind: "all" });
   sort = $state<Sort>("title");
@@ -123,8 +125,17 @@ class LibraryStore {
     api.onLibraryChanged(() => void this.refresh());
     api.onScanState((s) => (this.scan = s));
     api.onMetaState((s) => (this.meta = s));
-    const [games, settings, scan, info, meta] = await Promise.all([api.games(), api.settings(), api.scanState(), api.info(), api.metaState()]);
+    api.launch.onSession((s) => (this.session = s));
+    const [games, settings, scan, info, meta, session] = await Promise.all([
+      api.games(),
+      api.settings(),
+      api.scanState(),
+      api.info(),
+      api.metaState(),
+      api.launch.session(),
+    ]);
     this.meta = meta;
+    this.session = session;
     this.games = games;
     this.settings = settings;
     this.scan = scan;
@@ -138,6 +149,11 @@ class LibraryStore {
     } catch (e) {
       this.toast(String(e), "error");
     }
+  }
+
+  /** Starts a game; the session events tell how it goes. */
+  play(g: Game) {
+    return this.run(() => api.launch.play(g.id));
   }
 
   /** Puts an updated game in place without waiting for a full refresh. */

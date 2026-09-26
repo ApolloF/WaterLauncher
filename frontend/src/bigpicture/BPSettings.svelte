@@ -41,7 +41,18 @@
     { key: "sounds", title: "Navigation sounds", detail: "Soft clicks as you move.", kind: "toggle" },
     { key: "openBigPictureOnController", title: "Open big picture when a controller connects", detail: "Switches over as soon as you pick one up.", kind: "toggle" },
     { key: "startInBigPicture", title: "Start in big picture", detail: "Skip the desktop window when WaterLauncher starts.", kind: "toggle" },
-    { key: "psButton", title: "PS / Xbox button opens WaterLauncher", detail: "Also from other apps. Turn off Steam's guide-button shortcut to avoid both opening.", kind: "toggle" },
+    { key: "psButton", title: "PS / Xbox button opens WaterLauncher", detail: "From other apps, and the overlay in games. Turn off Steam's guide-button shortcut to avoid both opening.", kind: "toggle" },
+    { key: "closeWhilePlaying", title: "Close the interface while playing", detail: "Frees its memory. It comes back when the game exits.", kind: "toggle" },
+    {
+      key: "padWhilePlaying",
+      title: "Controller while playing",
+      detail: "Listen: the PS button opens the overlay, nothing is sent to the controller. Off: let go completely.",
+      kind: "choice",
+      options: [
+        ["listen", "Listen"],
+        ["off", "Off"],
+      ],
+    },
   ];
 
   let i = $state(0);

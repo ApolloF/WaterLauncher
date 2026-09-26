@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **v0.1 to v0.3 released** as prereleases (2026-09-25). v0.4 (game launching and play tracking) is next, waiting for the go.
+Status: **v0.1 to v0.3 released** as prereleases (2026-09-25). **v0.4** (launching, play tracking, game mode, overlay, Steam Input) is built on `feature/v0.4-launch` (2026-09-26) and needs a test with a real controller and Steam before release. v0.5 (Syncer) is next.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
@@ -34,7 +34,7 @@ Not in v1: downloading games or cracks (WaterLauncher only manages what's instal
 
 ```
                     ┌───────────────────────── WaterLauncher.exe (Go core, always running) ─────────────────────────┐
- metadata hosts ◄───┤ library (SQLite)  scan  identify  meta+images  launch/track  pad (SDL3)  syncer client  addon host │
+ metadata hosts ◄───┤ library (JSON)  scan  identify  meta+images  launch/track  pad (SDL3)  syncer client  addon host   │
  (allowlist)        └──────┬───────────────────────┬──────────────────────┬───────────────────────┬───────────────────────┘
                            │ Wails bindings/events │                      │ \\.\pipe\syncer       │ stdio JSON-RPC
                   ┌────────▼────────┐   ┌──────────▼─────────┐   ┌────────▼────────┐     ┌────────▼────────┐
@@ -56,7 +56,8 @@ internal/
     exe/                     picking the main exe (ported from DLSS Updater's GameInspector)
   identify/                  ID match, Ludusavi, PCGamingWiki, fuzzy titles, confidence
   meta/                      steamstore, gog, pcgw, steamgriddb, images (fetch, validate, resize, cache, accent colour)
-  launch/                    start, process tracking, playtime, hooks pipeline, steam input shortcuts
+  launch/                    sessions: hooks pipeline, process tracking, playtime
+  steaminput/                non-Steam shortcuts in shortcuts.vdf for the Steam Input route
   pad/                       SDL3 binding, DualSense features, intents, background PS-button listener
   syncer/                    pipe client
   addons/                    manifest, host, permissions, JSON-RPC
@@ -104,15 +105,18 @@ Data: `%APPDATA%\WaterLauncher` (`settings.json`, `library.json`, log), `%LOCALA
 ## 6. Launching, tracking, controller
 
 - **Launch:** Steam games use `steam://rungameid/…` (setting: direct exe). Everything else starts with `CreateProcess`: explicit path, working folder and argument array, no shell. Elevation happens only when the game's manifest requires it.
-- **Tracking:** the process tree plus matching on the install folder, which covers launcher-to-game handoffs. It polls every 2 s only while a game runs. Playtime is saved every minute. Steam playtime is imported from `localconfig.vdf`. Optional passive tracking covers games started outside WaterLauncher.
+- **Tracking:** the process tree plus matching on the install folder, which covers launcher-to-game handoffs. It polls every 2 s only while a game runs. Playtime is saved every minute. Steam playtime is imported from `localconfig.vdf`. Optional passive tracking of games started outside WaterLauncher isn't built yet: it needs polling while idle, which works against the idle budget.
+- **Command line:** `WaterLauncher.exe --play <id>` starts a game without opening the interface (for shortcuts).
 - **Hooks pipeline:** before launch (Syncer sync, add-ons) and after exit (Syncer backup, add-ons). Each step has a timeout, progress and a skip option, and the result is shown in the launch sequence.
 - **DualSense (SDL3):**
   - Features: hotplug, glyph detection (PS or Xbox), haptic ticks, a lightbar in the game's accent colour, and the PS button to summon the launcher.
   - While a game runs, WaterLauncher releases the controller and keeps only a passive PS-button listener. It sends no output reports and never switches the controller's report mode.
 - **Per-game controller mode:** *Auto* / *Native* / *Steam Input*.
-  - Auto uses Steam categories 55/57/58, PCGamingWiki, and whether `libScePad.dll` or SDL is in the game folder.
+  - Auto uses Steam categories 55/57/58, Steam's controller support field, and whether `libScePad.dll` or SDL is in the game folder. A game goes through Steam Input only when a PlayStation controller is in use and the game supports Xbox controllers but not PlayStation ones.
   - The Steam Input route uses non-Steam shortcuts that WaterLauncher manages in `shortcuts.vdf`, in a "WaterLauncher" collection. Changes are applied while Steam is closed, or after asking to restart it. These games launch through `steam://rungameid/<shortcut>`.
-- **Game mode:** all interface windows close; the smoke test measured about 420 MB for WebView2 alone. Pressing PS opens a borderless topmost overlay window. Nothing is ever injected into games, so anti-cheat stays happy.
+- **Game mode:** all interface windows close; the smoke test measured about 420 MB for WebView2 alone. WaterLauncher stays in the tray (pulled forward from v1.0, because game mode needs it). Closing the window yourself quits, except while a game runs. Pressing PS opens a borderless topmost overlay window. Nothing is ever injected into games, so anti-cheat stays happy.
+  - Measured in v0.4: the Go core uses about 35 MB while a game runs with the interface closed.
+  - Passive listening restarts SDL without its HIDAPI drivers and with enhanced reports off, so nothing is written to the controller.
 
 ## 7. Interface
 
@@ -168,13 +172,13 @@ Each phase ends with a working build, a GitHub prerelease and a check-in.
 | # | Version | Scope |
 |---|---|---|
 | 1 | v0.1 | Scaffold (Wails v3, Svelte 5, CI). Steam playtime import (pulled forward from v0.4). Detection code copied into `internal/` for now, split into `gamekit` in phase 5. SQLite schema, scanner (stores, unofficial, folders), Desktop D with real data (grid, filters, details), Settings skeleton, mock backend |
-| 2 | v0.2 | Metadata and art (Steam, GOG, PCGamingWiki, SteamGridDB), image pipeline, accent colours, *Found on this PC* review |
+| 2 | v0.2 | Metadata and art (Steam, GOG, SteamGridDB; PCGamingWiki dropped), image pipeline, accent colours, *Found on this PC* review |
 | 3 | v0.3 | Big picture: focus engine, SDL3 controller layer, **Deck** first, then Console, then Orbit; glyphs, haptics, lightbar, on-screen keyboard |
-| 4 | v0.4 | Launch and tracking, playtime import, hooks pipeline, game mode, PS-button overlay, Steam Input routing |
+| 4 | v0.4 | Launch and tracking, hooks pipeline, game mode (with tray), PS-button overlay, Steam Input routing, `--play` (playtime import moved to v0.1) |
 | 5 | v0.5 | `gamekit` repo and Syncer PR (pipe API, `--api`), launcher client, save status, conflicts, backup after exit |
 | 6 | v0.6 | Add-on protocol, host and permissions UI; DLSS Updater `--addon` PR |
 | 7 | v0.7 | Owned-but-not-installed games from Steam, GOG and Epic (opt-in) |
-| 8 | v1.0 | NSIS installer, auto-update, tray, start with Windows, docs, release |
+| 8 | v1.0 | NSIS installer, auto-update, start with Windows, code signing, docs, release |
 
 ## 13. Testing
 
@@ -206,6 +210,7 @@ Each phase ends with a working build, a GitHub prerelease and a check-in.
 ## 16. Environment (set up 2026-09-25)
 
 - Go 1.27.0, Wails CLI v3.0.0-beta.26, Node 24.19 and npm 11.17, NSIS, Git 2.55, GitHub CLI 2.101 (signed in as ApolloF, used as the Git credential helper), WebView2 153.
-- Repo: `C:\Users\Florian\Documents\Coding projects\WaterLauncher`, branch `main`, remote `https://github.com/ApolloF/WaterLauncher` (public, still empty). Repo-local identity `ApolloF <me@apollof.nl>`.
+- Repo: `C:\Users\Florian\Documents\Coding projects\WaterLauncher`, branch `main`, remote `https://github.com/ApolloF/WaterLauncher` (public). Repo-local identity `ApolloF <me@apollof.nl>`.
+- CI (`.github/workflows/build.yml`) builds and tests every push and PR on `windows-latest`. A `v*` tag publishes a prerelease with the exe, its SHA-256, and `docs/releases/<tag>.md` as notes.
 - Smoke test: a Wails v3 Svelte app built in 34 s into a 10.5 MB exe. At runtime the Go process used about 67 MB and WebView2 about 423 MB.
 - Installed later: SDL3 3.4.16 (phase 3, from the libsdl-org release, hash checked) and the .NET 8 SDK (phase 6).

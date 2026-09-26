@@ -1,7 +1,7 @@
 import { Events, Window } from "@wailsio/runtime";
-import { LibraryService, PadService, SettingsService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
+import { LaunchService, LibraryService, PadService, SettingsService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
 import type { Api } from "./api";
-import type { AppInfo, Game, MetaState, PadState, ScanState, Settings, StoreHit } from "./types";
+import type { AppInfo, Game, MetaState, PadState, ScanState, Session, Settings, StoreHit } from "./types";
 
 // The generated bindings return the Go structs; their JSON matches ./types.
 const g = (p: Promise<unknown>) => p as Promise<Game>;
@@ -16,7 +16,6 @@ export const realApi: Api = {
   rename: (id, title) => g(LibraryService.Rename(id, title)),
   confirmMatch: (id) => g(LibraryService.ConfirmMatch(id)),
   chooseExe: (id) => g(LibraryService.ChooseExe(id)),
-  play: (id) => LibraryService.Play(id),
   openFolder: (id) => LibraryService.OpenFolder(id),
   metaState: () => LibraryService.MetaState() as Promise<unknown> as Promise<MetaState>,
   refreshMetadata: (id) => LibraryService.RefreshMetadata(id),
@@ -36,6 +35,25 @@ export const realApi: Api = {
   onLibraryChanged: (cb) => Events.On("library:changed", () => cb()),
   onScanState: (cb) => Events.On("scan:state", (e) => cb(e.data as unknown as ScanState)),
   onMetaState: (cb) => Events.On("meta:state", (e) => cb(e.data as unknown as MetaState)),
+
+  launch: {
+    play: (id) => LaunchService.Play(id),
+    session: () => LaunchService.Session() as Promise<unknown> as Promise<Session>,
+    skip: (id) => void LaunchService.Skip(id),
+    answer: (q, o) => void LaunchService.Answer(q, o),
+    cancel: () => void LaunchService.Cancel(),
+    quitGame: () => LaunchService.QuitGame(),
+    setUIMode: (m) => void LaunchService.SetUIMode(m),
+    closeOverlay: () => void LaunchService.CloseOverlay(),
+    openMain: () => void LaunchService.OpenMain(),
+    onSession: (cb) => Events.On("launch:session", (e) => cb(e.data as unknown as Session)),
+    onOverlayAction: (cb) =>
+      Events.On("overlay:action", (e) => {
+        const d = e.data as unknown as { action: string; repeat: boolean };
+        cb(d.action, d.repeat);
+      }),
+    onUIMode: (cb) => Events.On("ui:mode", (e) => cb(e.data as unknown as "desktop" | "bigpicture")),
+  },
 
   window: {
     minimise: () => void Window.Minimise(),

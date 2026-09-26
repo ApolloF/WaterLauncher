@@ -121,36 +121,6 @@ func (s *LibraryService) ChooseExe(id int64) (library.Game, error) {
 	})
 }
 
-// Play starts a game.
-func (s *LibraryService) Play(id int64) error {
-	g, ok := s.c.Lib.Get(id)
-	if !ok {
-		return library.ErrNotFound
-	}
-	if !g.Installed {
-		return errors.New(g.DisplayTitle() + " isn't installed")
-	}
-	var err error
-	switch {
-	case g.LaunchURI != "":
-		err = platform.OpenURI(g.LaunchURI)
-	case g.Exe != "":
-		if !platform.Within(g.Dir, g.Exe) && !g.UserExe {
-			return errors.New("the game's program is outside its folder")
-		}
-		_, err = platform.StartProcess(g.Exe, g.Args, g.WorkDir)
-	default:
-		err = errors.New("no program found to start " + g.DisplayTitle() + ". Choose one in the game's options.")
-	}
-	if err != nil {
-		logx.Printf("play %q: %v", g.DisplayTitle(), err)
-		return err
-	}
-	logx.Printf("play %q", g.DisplayTitle())
-	_, _ = s.update(id, func(g *library.Game) { g.LastPlayed = time.Now().Unix() })
-	return nil
-}
-
 // MetaState reports metadata fetching progress.
 func (s *LibraryService) MetaState() MetaState { return s.c.meta.State() }
 

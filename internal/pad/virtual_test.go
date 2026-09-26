@@ -89,6 +89,20 @@ func TestVirtualGamepad(t *testing.T) {
 	if joy == 0 {
 		t.Fatal("virtual joystick not opened")
 	}
+	attachPad := func() {
+		joy = 0
+		run(func(s *sdl) {
+			attach, _ := s.dll.FindProc("SDL_AttachVirtualJoystick")
+			open, _ := s.dll.FindProc("SDL_OpenJoystick")
+			d := sdlVirtualJoystickDesc{Type: 1, NAxes: 6, NButtons: 15, ButtonMask: 1<<15 - 1, AxisMask: 1<<6 - 1, Name: name}
+			d.Version = uint32(unsafe.Sizeof(d))
+			id, _, _ := attach.Call(uintptr(unsafe.Pointer(&d)))
+			joy, _, _ = open.Call(id)
+		})
+		if joy == 0 {
+			t.Fatal("virtual joystick not opened")
+		}
+	}
 
 	waitState := func(want func(State) bool) State {
 		deadline := time.After(3 * time.Second)
@@ -164,4 +178,24 @@ func TestVirtualGamepad(t *testing.T) {
 		closeJ.Call(joy)
 	})
 	waitState(func(s State) bool { return !s.Connected })
+
+	// Passive mode (while a game runs): SDL starts over without HIDAPI,
+	// input still arrives, and nothing is sent to the controller.
+	m.SetMode(Passive)
+	time.Sleep(300 * time.Millisecond)
+	attachPad()
+	waitState(func(s State) bool { return s.Connected })
+	press(5, true)
+	expect(Home)
+	press(5, false)
+	m.Rumble("confirm")
+	if len(m.cmds) != 0 {
+		t.Error("rumble queued in passive mode")
+	}
+	m.SetMode(Off)
+	m.SetMode(Active)
+	time.Sleep(300 * time.Millisecond)
+	if m.Mode() != Active {
+		t.Error("not active again")
+	}
 }

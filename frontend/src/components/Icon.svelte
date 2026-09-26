@@ -12,6 +12,7 @@
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M18 6l-1.6 1.6M7.6 16.4L6 18M18 18l-1.6-1.6M7.6 7.6L6 6"/>',
     search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>',
     play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none"/>',
+    stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" stroke="none"/>',
     download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/>',
     dots: '<path d="M6 12h.01M12 12h.01M18 12h.01" stroke-width="3"/>',
     pad: '<path d="M8 7.5h8a4.8 4.8 0 0 1 4.7 5.8l-.7 3.4a2.5 2.5 0 0 1-4.3 1.2L14.2 16H9.8l-1.5 1.9A2.5 2.5 0 0 1 4 16.7l-.7-3.4A4.8 4.8 0 0 1 8 7.5z"/><path d="M8.2 10.6v3.2M6.6 12.2h3.2"/>',

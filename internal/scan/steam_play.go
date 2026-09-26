@@ -28,7 +28,7 @@ func steamStats(root string) map[int]SteamStat {
 	if root == "" {
 		return out
 	}
-	for _, acc := range steamAccounts(root) {
+	for _, acc := range SteamAccounts(root) {
 		n := vdf.ReadFile(filepath.Join(root, "userdata", acc, "config", "localconfig.vdf"))
 		for _, store := range n.Kids() {
 			for id, app := range store.Get("Software", "Valve", "Steam", "apps").Kids() {
@@ -48,10 +48,10 @@ func steamStats(root string) map[int]SteamStat {
 	return out
 }
 
-// steamAccounts returns the userdata folder of the account Steam uses on
+// SteamAccounts returns the userdata folder of the account Steam uses on
 // this PC: the one signed in now, else the one that signs in
 // automatically, else the last one used. All known accounts if unsure.
-func steamAccounts(root string) []string {
+func SteamAccounts(root string) []string {
 	type user struct {
 		acc, name string
 		recent    bool

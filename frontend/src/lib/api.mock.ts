@@ -1,7 +1,8 @@
 // Made-up library for `npm run dev:mock`: the games from the design canvas,
 // covering every way a game can be found.
 import type { Api } from "./api";
-import type { AppInfo, Game, MetaState, ScanState, Settings } from "./types";
+import type { AppInfo, Game, MetaState, ScanState, Session, Settings } from "./types";
+import { sessionActive } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
 const day = 86400;
@@ -58,6 +59,8 @@ let settings: Settings = {
   lightbar: true,
   psButton: true,
   glyphs: "auto",
+  closeWhilePlaying: true,
+  padWhilePlaying: "listen",
 };
 
 let sgdb = false;
@@ -74,6 +77,53 @@ function update(id: number, fn: (g: Game) => void): Promise<Game> {
   fn(g);
   libListeners.forEach((cb) => cb());
   return Promise.resolve(clone(g));
+}
+
+// ---- a pretend game session ----
+
+let session: Session = { id: 0, gameId: 0, title: "", phase: "", route: "", before: [], after: [], seconds: 0 };
+const sessionListeners = new Set<(s: Session) => void>();
+let skipStep = "";
+let answerWith: ((o: string) => void) | null = null;
+
+function setSession(p: Partial<Session>) {
+  session = { ...session, ...p };
+  sessionListeners.forEach((cb) => cb(clone(session)));
+}
+
+async function runMockSession(g: Game) {
+  const steam = g.padMode === "steam" && !g.launchUri;
+  setSession({
+    id: session.id + 1, gameId: g.id, title: g.customTitle || g.title, phase: "preparing",
+    route: "", before: steam ? [{ id: "steamInput", label: "Steam Input", status: "running" }] : [],
+    after: [], seconds: 0, startedAt: 0, error: "", note: "", question: undefined,
+  });
+  const id = session.id;
+  if (steam) {
+    const answer = await new Promise<string>((resolve) => {
+      answerWith = resolve;
+      setSession({ question: { id: 1, text: `Steam needs to restart once to add ${session.title} for Steam Input.`, options: [
+        { id: "restart", label: "Restart Steam" }, { id: "direct", label: "Start without Steam Input" }, { id: "cancel", label: "Cancel" },
+      ] } });
+    });
+    answerWith = null;
+    setSession({ question: undefined });
+    if (answer === "cancel") return setSession({ phase: "cancelled", before: [{ id: "steamInput", label: "Steam Input", status: "skipped" }] });
+    setSession({ before: [{ id: "steamInput", label: "Steam Input", status: "running", detail: answer === "restart" ? "Closing Steam…" : "" }] });
+    await wait(skipStep ? 0 : 1400);
+    setSession({ before: [{ id: "steamInput", label: "Steam Input", status: "done", detail: answer === "restart" ? "Added to Steam" : "Starting without Steam Input" }] });
+  }
+  const cur = () => session; // read fresh after each await
+  if (cur().id !== id || cur().phase !== "preparing") return;
+  setSession({ phase: "starting", route: steam ? "steamInput" : g.launchUri ? "store" : "direct" });
+  await update(g.id, (x) => (x.lastPlayed = Math.floor(Date.now() / 1000)));
+  await wait(1800);
+  if (cur().id !== id || cur().phase !== "starting") return;
+  setSession({ phase: "running", startedAt: Math.floor(Date.now() / 1000) });
+  const t = setInterval(() => {
+    if (session.id !== id || session.phase !== "running") return clearInterval(t);
+    setSession({ seconds: session.seconds + 1 });
+  }, 1000);
 }
 
 export const mockApi: Api = {
@@ -98,9 +148,6 @@ export const mockApi: Api = {
   rename: (id, t) => update(id, (g) => (g.customTitle = t.trim())),
   confirmMatch: (id) => update(id, (g) => ((g.confirmed = true), (g.needsReview = false))),
   chooseExe: (id) => update(id, (g) => ((g.exe = g.dir + "\\Game.exe"), (g.userExe = true))),
-  async play(id) {
-    await update(id, (g) => (g.lastPlayed = Math.floor(Date.now() / 1000)));
-  },
   async openFolder() {},
   async metaState(): Promise<MetaState> {
     return { running: false, done: 0, total: 0 };
@@ -155,6 +202,45 @@ export const mockApi: Api = {
   },
   onMetaState() {
     return () => {};
+  },
+  launch: {
+    async play(id) {
+      const g = games.find((x) => x.id === id);
+      if (!g) throw new Error("game not found");
+      if (sessionActive(session)) throw new Error(`${session.title} is still running`);
+      runMockSession(g);
+    },
+    async session() {
+      return clone(session);
+    },
+    skip(id) {
+      skipStep = id;
+    },
+    answer(_q, option) {
+      answerWith?.(option);
+    },
+    cancel() {
+      if (session.phase === "preparing" || session.phase === "starting") setSession({ phase: "cancelled", question: undefined });
+    },
+    async quitGame() {
+      if (session.phase !== "running") throw new Error("no game is running");
+      setSession({ phase: "finishing" });
+      await wait(400);
+      setSession({ phase: "ended" });
+    },
+    setUIMode() {},
+    closeOverlay() {},
+    openMain() {},
+    onSession(cb) {
+      sessionListeners.add(cb);
+      return () => sessionListeners.delete(cb);
+    },
+    onOverlayAction() {
+      return () => {};
+    },
+    onUIMode() {
+      return () => {};
+    },
   },
   window: { minimise() {}, toggleMaximise() {}, close() {}, fullscreen() {} },
   pad: {

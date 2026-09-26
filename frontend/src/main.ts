@@ -7,5 +7,9 @@ import "@fontsource/barlow-condensed/700.css";
 import "./app.css";
 import { mount } from "svelte";
 import App from "./App.svelte";
+import Overlay from "./overlay/Overlay.svelte";
 
-mount(App, { target: document.getElementById("app")! });
+// One bundle, two windows: the main window and the in-game overlay.
+const overlay = new URLSearchParams(location.search).get("view") === "overlay";
+if (overlay) document.documentElement.classList.add("overlay-window");
+mount(overlay ? Overlay : App, { target: document.getElementById("app")! });
