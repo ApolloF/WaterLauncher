@@ -4,11 +4,13 @@
 import * as LaunchService from "./launchservice.js";
 import * as LibraryService from "./libraryservice.js";
 import * as PadService from "./padservice.js";
+import * as SavesService from "./savesservice.js";
 import * as SettingsService from "./settingsservice.js";
 export {
     LaunchService,
     LibraryService,
     PadService,
+    SavesService,
     SettingsService
 };
 
@@ -16,5 +18,6 @@ export type {
     AppInfo,
     MetaState,
     PadAction,
+    Saves,
     ScanState
 } from "./models.js";

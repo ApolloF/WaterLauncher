@@ -43,9 +43,9 @@
       {/if}
     </header>
 
-    {#if s.before.length}
+    {#if (s.phase === "finishing" || s.phase === "ended" ? s.after : s.before).length}
       <ul class="steps">
-        {#each s.before as st (st.id)}
+        {#each s.phase === "finishing" || s.phase === "ended" ? s.after : s.before as st (st.id)}
           <li class={st.status}>
             <span class="mark">
               {#if st.status === "running"}<span class="spinner"></span>

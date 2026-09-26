@@ -81,6 +81,36 @@ export interface Settings {
   glyphs: "auto" | "playstation" | "xbox";
   closeWhilePlaying: boolean;
   padWhilePlaying: "listen" | "off";
+  syncSavesBefore: boolean;
+  backupSavesAfter: boolean;
+}
+
+/** One save folder Syncer looks after. */
+export interface SaveFolder {
+  id: string;
+  label: string;
+  path: string;
+  sync: boolean;
+  backup: boolean;
+  state: string;
+  needBytes: number;
+  errors: number;
+  conflicts: number;
+  exists: boolean;
+  modified: string;
+  backedUp: string;
+  newerOn: string;
+  newerAt: string;
+}
+
+/** What Syncer knows about a game's saves. */
+export interface Saves {
+  installed: boolean;
+  outdated?: boolean;
+  available: boolean;
+  error?: string;
+  known: boolean;
+  folders: SaveFolder[];
 }
 
 export interface ScanState {

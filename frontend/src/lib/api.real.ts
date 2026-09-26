@@ -1,7 +1,7 @@
 import { Events, Window } from "@wailsio/runtime";
-import { LaunchService, LibraryService, PadService, SettingsService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
+import { LaunchService, LibraryService, PadService, SavesService, SettingsService } from "../../bindings/github.com/ApolloF/WaterLauncher/internal/app";
 import type { Api } from "./api";
-import type { AppInfo, Game, MetaState, PadState, ScanState, Session, Settings, StoreHit } from "./types";
+import type { AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, StoreHit } from "./types";
 
 // The generated bindings return the Go structs; their JSON matches ./types.
 const g = (p: Promise<unknown>) => p as Promise<Game>;
@@ -35,6 +35,12 @@ export const realApi: Api = {
   onLibraryChanged: (cb) => Events.On("library:changed", () => cb()),
   onScanState: (cb) => Events.On("scan:state", (e) => cb(e.data as unknown as ScanState)),
   onMetaState: (cb) => Events.On("meta:state", (e) => cb(e.data as unknown as MetaState)),
+
+  saves: {
+    get: (id, fresh = false) => SavesService.Saves(id, fresh) as Promise<unknown> as Promise<Saves>,
+    openSyncer: () => SavesService.OpenSyncer(),
+    getSyncer: () => SavesService.GetSyncer(),
+  },
 
   launch: {
     play: (id) => LaunchService.Play(id),

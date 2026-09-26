@@ -7,7 +7,8 @@
   import { metaLine, padSummary } from "../lib/bp";
   import { feedback, useInput } from "../lib/input.svelte";
   import { lib } from "../lib/store.svelte";
-  import { title, type Game } from "../lib/types";
+  import { savesSummary } from "../lib/saves";
+  import { title, type Game, type Saves } from "../lib/types";
   import Hints from "./Hints.svelte";
   import { clamp } from "./nav";
 
@@ -18,6 +19,15 @@
 
   let b = $state(0);
   let logoFailed = $state(false);
+
+  let saves = $state<Saves | null>(null);
+  const savesInfo = $derived(savesSummary(saves));
+  $effect(() => {
+    const id = game.id;
+    let live = true;
+    if (game.installed) api.saves.get(id).then((s) => live && (saves = s)).catch(() => {});
+    return () => (live = false);
+  });
   const buttons = $derived([
     { id: "play", label: game.installed ? "Play" : "Not installed" },
     { id: "fav", label: game.favorite ? "Favorite" : "Add to favorites" },
@@ -74,6 +84,9 @@
       {/each}
     </div>
     <div class="note">{pad.long}</div>
+    {#if savesInfo && saves?.installed}
+      <div class="note saves" class:warn={savesInfo.tone === "warn"}>Saves: {savesInfo.text}</div>
+    {/if}
   </div>
   <div class="hints"><Hints hints={[{ button: "confirm", label: "Select" }, { button: "back", label: "Back" }]} /></div>
 </div>
@@ -184,6 +197,12 @@
   .note {
     font-size: 18px;
     color: rgba(243, 245, 247, 0.6);
+  }
+  .note.saves {
+    margin-top: -12px;
+  }
+  .note.warn {
+    color: #ffd28a;
   }
   .hints {
     position: absolute;

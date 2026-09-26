@@ -32,6 +32,15 @@ func safeURI(uri string) bool {
 	return false
 }
 
+// OpenWebPage opens an https page in the default browser. Only pages
+// WaterLauncher itself links to are passed here.
+func OpenWebPage(url string) error {
+	if !strings.HasPrefix(url, "https://") || strings.ContainsAny(url, " \"<>\r\n\x00") {
+		return errors.New("refusing to open this link")
+	}
+	return shellExecute("open", url, "", "")
+}
+
 // ShowInExplorer opens Explorer at dir.
 func ShowInExplorer(dir string) error {
 	if !filepath.IsAbs(dir) || !IsDir(dir) {

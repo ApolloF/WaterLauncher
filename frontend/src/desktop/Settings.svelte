@@ -168,6 +168,8 @@
           <div class="group">
             <span class="glabel">While playing</span>
             <Toggle checked={s.closeWhilePlaying} title="Close the interface while a game runs" detail="Frees the memory it uses (about 400 MB). It comes back when the game exits; the tray icon opens it sooner." onchange={(v) => set({ closeWhilePlaying: v })} />
+            <Toggle checked={s.syncSavesBefore} title="Sync saves before playing" detail="With Syncer installed: the game's saves are brought up to date from your other PCs first, and you're warned about two versions of a save." onchange={(v) => set({ syncSavesBefore: v })} />
+            <Toggle checked={s.backupSavesAfter} title="Back up saves after playing" detail="With Syncer installed: a backup runs as soon as the game exits." onchange={(v) => set({ backupSavesAfter: v })} />
             <Toggle checked={s.padWhilePlaying === "listen"} title="Listen for the PS / Xbox button in games" detail="Opens the overlay. WaterLauncher only listens: it never writes to the controller or changes its mode while a game has it. Turn off to let go of the controller completely." onchange={(v) => set({ padWhilePlaying: v ? "listen" : "off" })} />
           </div>
         {:else}
