@@ -1,6 +1,6 @@
 # WaterLauncher plan
 
-Status: **v0.1 to v0.3 released** as prereleases (2026-09-25). **v0.4** (launching, play tracking, game mode, overlay, Steam Input) is built on `feature/v0.4-launch` (2026-09-26) and needs a test with a real controller and Steam before release. v0.5 (Syncer) is next.
+Status: **v0.1 to v0.4 released** as prereleases (2026-09-25 and 26). **v0.5** (Syncer) is built (2026-09-26): [gamekit](https://github.com/ApolloF/gamekit) v0.1.0 is published and used by WaterLauncher, and the Syncer side is in [ApolloF/syncer#7](https://github.com/ApolloF/syncer/pull/7). v0.5 is released once Syncer 0.11 is out. v0.6 (add-ons) is next.
 Design reference: [WaterLauncher Design Directions](https://claude.ai/artifact/EUqrFQcmgAThrxbm8vAr6i) (A Console, B Orbit, C Deck, D Desktop).
 
 ## 1. Goals
@@ -22,8 +22,8 @@ Not in v1: downloading games or cracks (WaterLauncher only manages what's instal
 | Why v3 | It can close windows and keep the app alive (the interface unloads while a game runs), has several windows (main and in-game overlay) and a built-in tray. v2 can only hide its one window. |
 | Library storage | In memory, saved as one JSON file with atomic writes (changed from SQLite during v0.1: even thousands of games stay a few MB, it loads in milliseconds, and it saves a ~7 MB dependency; search and filters run in the interface) |
 | Controller | SDL3 3.4.x (`SDL3.dll`, zlib license) through a small binding of our own over `golang.org/x/sys/windows`. No cgo. We need about 20 functions, all with integer arguments. |
-| Shared code | Detection code (Steam, Epic, GOG, Xbox, tamper and emulator checks, Ludusavi manifest, known folders) moves out of Syncer into a new module `github.com/ApolloF/gamekit` |
-| Syncer | Stays a separate app and gets a local API (named pipe, current user only) |
+| Shared code | `github.com/ApolloF/gamekit` (public, MIT): VDF (text and binary), Steam (folder, libraries, installed apps, account, Authenticode, tamper and emulator checks) and the Ludusavi manifest parser. Store detection (Epic, GOG, Xbox, …) stays in each app for now: Syncer only needs names, WaterLauncher needs launch details. |
+| Syncer | Stays a separate app and gets a local API (named pipe, current user only). Needs Syncer 0.11+; see [syncer-api.md](syncer-api.md) |
 | Add-ons | Separate executables using JSON-RPC 2.0 over stdio. Their UI is declarative, so it renders natively in every layout. |
 | Store games not installed | Optional, **off by default** |
 | Desktop theme | Follows the Windows light or dark setting (Mica). Big picture is always dark. |
@@ -59,7 +59,7 @@ internal/
   launch/                    sessions: hooks pipeline, process tracking, playtime
   steaminput/                non-Steam shortcuts in shortcuts.vdf for the Steam Input route
   pad/                       SDL3 binding, DualSense features, intents, background PS-button listener
-  syncer/                    pipe client
+  syncer/                    pipe client (Syncer's launcher API)
   addons/                    manifest, host, permissions, JSON-RPC
   platform/                  DPAPI, known folders, foreground and full-screen checks
   update/                    GitHub release check, SHA-256 verify
@@ -128,12 +128,14 @@ Data: `%APPDATA%\WaterLauncher` (`settings.json`, `library.json`, log), `%LOCALA
 
 ## 8. Syncer integration
 
-Changes in `ApolloF/syncer`, as a separate PR:
+Done in v0.5. Syncer's side is [ApolloF/syncer#7](https://github.com/ApolloF/syncer/pull/7); the protocol is Syncer's [docs/api.md](https://github.com/ApolloF/syncer/blob/main/docs/api.md), and WaterLauncher's use of it is in [syncer-api.md](syncer-api.md).
 
-1. Import `gamekit` instead of the moved packages; its behaviour stays the same and its tests keep passing.
-2. Add a `\\.\pipe\syncer` JSON-RPC server whose ACL allows only the current user. It is served while the window or tray is open. A new headless `Syncer.exe --api` mode serves the pipe and exits when idle, so the launcher can start it when needed.
-3. Methods: `status`, `gameStatus` (by folder, AppID or title), `syncNow` (wait, with timeout), `backupNow`, `conflicts`, `resolveConflict`, `open`, and `registerGame`. With `registerGame` the launcher passes its game list so Syncer can match saves to cracked games. Plus a change event stream.
-4. The protocol is versioned. The launcher copes when Syncer is missing or old (it shows an *Install Syncer* card).
+1. Syncer imports `gamekit` for VDF, Steam libraries, tamper checks and the manifest parser. `internal/steam` keeps its API as thin wrappers, and the manifest parser gives identical results (13,719 games with Windows saves).
+2. `\\.\pipe\syncer`: JSON-RPC, one message per line, served by the window. A protected DACL grants only the current user, and remote clients are refused. `Syncer.exe --api` serves it without a window and exits a minute after the last connection. The client checks the server process's owner.
+3. Methods: `status`, `games`, `gameStatus` (by title, Steam app, install folder, or a title the launcher registered), `syncNow` (with timeout), `backupNow` (optionally waiting), `conflicts`, `resolveConflict`, `open`, `registerGames`, `subscribe` (`changed` notifications).
+4. The protocol is versioned (`status.protocol`, now 1). WaterLauncher handles Syncer being missing (*Get Syncer*) or older than 0.11 (*Update Syncer*; it never starts an old `Syncer.exe --api`, which would open its window).
+
+Follow-ups in Syncer, after its `feature/steam-autocloud-copies` work lands: use `gamekit/steam.Accounts`, and let registered launcher games feed discovery (for now they only help `gameStatus`).
 
 ## 9. Add-ons
 

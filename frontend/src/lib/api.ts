@@ -1,7 +1,7 @@
 // The frontend's one door to the Go side. In mock mode (`npm run dev:mock`)
 // the same interface is served by made-up data, so the interface can be
 // built and checked in a normal browser. Vite drops the unused one.
-import type { AppInfo, Game, MetaState, PadState, ScanState, Session, Settings, StoreHit } from "./types";
+import type { AppInfo, Game, MetaState, PadState, Saves, ScanState, Session, Settings, StoreHit } from "./types";
 import { realApi } from "./api.real";
 import { mockApi } from "./api.mock";
 
@@ -34,6 +34,13 @@ export interface Api {
   onLibraryChanged(cb: () => void): () => void;
   onScanState(cb: (s: ScanState) => void): () => void;
   onMetaState(cb: (s: MetaState) => void): () => void;
+
+  saves: {
+    /** Syncer's view of a game's saves; fresh skips the short cache. */
+    get(id: number, fresh?: boolean): Promise<Saves>;
+    openSyncer(): Promise<void>;
+    getSyncer(): Promise<void>;
+  };
 
   launch: {
     play(id: number): Promise<void>;

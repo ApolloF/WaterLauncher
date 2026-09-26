@@ -20,7 +20,7 @@ import (
 
 	"github.com/ApolloF/WaterLauncher/internal/platform"
 	"github.com/ApolloF/WaterLauncher/internal/scan"
-	"github.com/ApolloF/WaterLauncher/internal/vdf"
+	"github.com/ApolloF/gamekit/vdf"
 )
 
 // Tag is the Steam collection WaterLauncher's shortcuts go in.

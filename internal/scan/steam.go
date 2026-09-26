@@ -3,13 +3,11 @@ package scan
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/ApolloF/WaterLauncher/internal/platform"
-	"github.com/ApolloF/WaterLauncher/internal/vdf"
-	"golang.org/x/sys/windows/registry"
+	"github.com/ApolloF/gamekit/steam"
 )
 
 // steamTools are app ids Steam installs that aren't games.
@@ -27,64 +25,19 @@ var steamTools = map[int]bool{
 
 var steamToolNames = []string{"proton", "steam linux runtime", "steamworks", "redistributable", "steamvr"}
 
-// State flags of an appmanifest (EAppState).
-const (
-	stateUpdateRequired = 2
-	stateFullyInstalled = 4
-	stateUpdateRunning  = 256
-	stateUpdatePaused   = 512
-	stateUpdateStarted  = 1024
-	stateUninstalling   = 2048
-)
-
-// SteamDir returns Steam's install folder ("" if Steam isn't installed).
+// SteamDir returns Steam's install folder ("" if Steam isn't installed),
+// with the capitalisation the file system uses (Steam keeps it lower-cased
+// in the registry).
 func SteamDir() string {
-	for _, k := range []struct {
-		root       registry.Key
-		path, name string
-	}{
-		{registry.CURRENT_USER, `Software\Valve\Steam`, "SteamPath"},
-		{registry.LOCAL_MACHINE, `SOFTWARE\WOW6432Node\Valve\Steam`, "InstallPath"},
-		{registry.LOCAL_MACHINE, `SOFTWARE\Valve\Steam`, "InstallPath"},
-	} {
-		key, err := registry.OpenKey(k.root, k.path, registry.QUERY_VALUE)
-		if err != nil {
-			continue
-		}
-		v, _, err := key.GetStringValue(k.name)
-		key.Close()
-		if err != nil || strings.TrimSpace(v) == "" {
-			continue
-		}
-		if d := filepath.Clean(filepath.FromSlash(strings.TrimSpace(v))); platform.IsDir(filepath.Join(d, "steamapps")) {
-			return platform.RealCase(d)
-		}
-	}
-	if d := filepath.Join(platform.ProgramFilesX86, "Steam"); platform.IsDir(filepath.Join(d, "steamapps")) {
-		return d
+	if d := steam.Dir(); d != "" {
+		return platform.RealCase(d)
 	}
 	return ""
 }
 
 // SteamLibraries returns Steam's own folder plus every library folder listed
 // in its libraryfolders.vdf.
-func SteamLibraries(root string) []string {
-	if !filepath.IsAbs(root) {
-		return nil
-	}
-	libs := []string{filepath.Clean(root)}
-	seen := map[string]bool{platform.Key(root): true}
-	var extra []string
-	for _, lib := range vdf.ReadFile(filepath.Join(root, "steamapps", "libraryfolders.vdf")).Get("libraryfolders").Kids() {
-		dir := filepath.Clean(lib.Value("path"))
-		if k := platform.Key(dir); filepath.IsAbs(dir) && !seen[k] {
-			extra = append(extra, dir)
-			seen[k] = true
-		}
-	}
-	sort.Strings(extra)
-	return append(libs, extra...)
-}
+func SteamLibraries(root string) []string { return steam.Libraries(root) }
 
 // steamCandidates lists the games Steam installed, across all libraries.
 func steamCandidates(root string) []Candidate {
@@ -92,38 +45,19 @@ func steamCandidates(root string) []Candidate {
 	seen := map[int]bool{}
 	stats := steamStats(root)
 	for _, lib := range SteamLibraries(root) {
-		files, _ := filepath.Glob(filepath.Join(lib, "steamapps", "appmanifest_*.acf"))
-		for _, file := range files {
-			st := vdf.ReadFile(file).Get("AppState")
-			id, err := strconv.Atoi(st.Value("appid"))
-			if err != nil || id <= 0 || seen[id] || steamTools[id] {
+		for _, app := range steam.LibraryApps(lib) {
+			if !app.Installed || seen[app.ID] || steamTools[app.ID] || isSteamTool(app.Name) {
 				continue
 			}
-			name := st.Value("name")
-			if isSteamTool(name) {
-				continue
-			}
-			common := filepath.Join(lib, "steamapps", "common")
-			installDir := st.Value("installdir")
-			if !filepath.IsLocal(installDir) {
-				continue
-			}
-			dir := filepath.Join(common, installDir)
-			flags, _ := strconv.Atoi(st.Value("StateFlags"))
-			playable := flags&stateFullyInstalled != 0 ||
-				flags&(stateUpdateRequired|stateUpdateRunning|stateUpdatePaused|stateUpdateStarted) != 0
-			if !playable || flags&stateUninstalling != 0 || !platform.IsDir(dir) {
-				continue
-			}
-			size, _ := strconv.ParseInt(st.Value("SizeOnDisk"), 10, 64)
+			name := app.Name
 			if name == "" {
-				name = installDir
+				name = filepath.Base(app.Dir)
 			}
-			seen[id] = true
+			seen[app.ID] = true
 			out = append(out, Candidate{
-				Title: name, TitleTrusted: true, Dir: dir, Source: Steam, SteamAppID: id,
-				LaunchURI: "steam://rungameid/" + strconv.Itoa(id), How: "Steam library", SizeBytes: size,
-				StorePlaytime: stats[id].Playtime, StoreLastPlayed: stats[id].LastPlayed,
+				Title: name, TitleTrusted: true, Dir: app.Dir, Source: Steam, SteamAppID: app.ID,
+				LaunchURI: "steam://rungameid/" + strconv.Itoa(app.ID), How: "Steam library", SizeBytes: app.Size,
+				StorePlaytime: stats[app.ID].Playtime, StoreLastPlayed: stats[app.ID].LastPlayed,
 			})
 		}
 	}

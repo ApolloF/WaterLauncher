@@ -14,6 +14,7 @@ import (
 	"github.com/ApolloF/WaterLauncher/internal/pad"
 	"github.com/ApolloF/WaterLauncher/internal/platform"
 	"github.com/ApolloF/WaterLauncher/internal/steaminput"
+	"github.com/ApolloF/WaterLauncher/internal/syncer"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -144,7 +145,19 @@ func (c *Core) plan(g library.Game) launch.Plan {
 	title := g.DisplayTitle()
 	r := route(g, c.padState())
 	var steamURI string
-	var before []launch.Step
+	var before, after []launch.Step
+	cfg := c.Settings.Get()
+	if _, ok := syncer.Installed(); ok {
+		known := false
+		if cfg.SyncSavesBefore {
+			before = append(before, c.savesBeforeStep(g, &known))
+		} else {
+			known = true // not checked: let the backup step ask Syncer itself
+		}
+		if cfg.BackupSavesAfter {
+			after = append(after, c.savesAfterStep(g, &known))
+		}
+	}
 	if r == RouteSteamInput {
 		before = append(before, c.steamInputStep(g, &steamURI))
 	}
@@ -157,7 +170,7 @@ func (c *Core) plan(g library.Game) launch.Plan {
 		detect = 5 * time.Minute // stores update, sign in, build shader caches
 	}
 	return launch.Plan{
-		GameID: g.ID, Title: title, Dirs: dirs, Before: before, DetectTimeout: detect,
+		GameID: g.ID, Title: title, Dirs: dirs, Before: before, After: after, DetectTimeout: detect,
 		Start: func() (uint32, string, error) {
 			var err error
 			var pid int
@@ -218,6 +231,9 @@ func (c *Core) onSession(s launch.Session) {
 	}
 	if s.StartedAt > 0 {
 		logx.Printf("played %q for %s", s.Title, (time.Duration(s.Seconds) * time.Second).String())
+	}
+	for _, st := range append(append([]launch.StepState{}, s.Before...), s.After...) {
+		logx.Printf("  %s: %s %s", st.Label, st.Status, st.Detail)
 	}
 	if m := c.padManager(); m != nil {
 		m.SetMode(pad.Active)

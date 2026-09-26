@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ApolloF/WaterLauncher/internal/vdf"
+	"github.com/ApolloF/gamekit/vdf"
 )
 
 func TestID(t *testing.T) {

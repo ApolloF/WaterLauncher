@@ -37,6 +37,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(app.NewLibraryService(core)),
 			application.NewService(launcher),
+			application.NewService(app.NewSavesService(core)),
 			application.NewService(app.NewSettingsService(core)),
 			application.NewService(app.NewPadService(core)),
 		},

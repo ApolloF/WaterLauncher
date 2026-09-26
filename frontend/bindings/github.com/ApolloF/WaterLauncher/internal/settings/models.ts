@@ -68,4 +68,15 @@ export interface Settings {
      * listen (PS button opens the overlay), off (release the controller)
      */
     "padWhilePlaying": string;
+
+    /**
+     * Saves, through Syncer
+     * sync a game's saves before it starts
+     */
+    "syncSavesBefore": boolean;
+
+    /**
+     * back its saves up after it exits
+     */
+    "backupSavesAfter": boolean;
 }

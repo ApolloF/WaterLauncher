@@ -17,7 +17,8 @@
 
   const phase = $derived(session.phase);
   const q = $derived(session.question);
-  const running = $derived(session.before.find((s) => s.status === "running"));
+  const steps = $derived(phase === "finishing" || phase === "ended" ? session.after : session.before);
+  const running = $derived(steps.find((s) => s.status === "running"));
 
   $effect(() => {
     q?.id;
@@ -94,6 +95,7 @@
           break;
         case "finishing":
           if (i === "back") onclose();
+          else if (i === "action" && running) api.launch.skip(running.id);
           break;
         default:
           if (i === "back" || i === "confirm") onclose();
@@ -113,7 +115,7 @@
           { button: "back" as const, label: "Library" },
         ];
       case "finishing":
-        return [{ button: "back" as const, label: "Library" }];
+        return [...(running ? [{ button: "action" as const, label: "Skip step" }] : []), { button: "back" as const, label: "Library" }];
       default:
         return [{ button: "confirm" as const, label: "Back to library" }];
     }
@@ -131,9 +133,9 @@
       <h1>{game ? title(game) : session.title}</h1>
     {/if}
 
-    {#if session.before.length && (phase === "preparing" || phase === "starting")}
+    {#if steps.length && (phase === "preparing" || phase === "starting" || phase === "finishing")}
       <ul class="steps">
-        {#each session.before as st (st.id)}
+        {#each steps as st (st.id)}
           <li class={st.status}>
             <span class="mark">{st.status === "done" ? "✓" : st.status === "failed" ? "!" : st.status === "skipped" ? "–" : ""}</span>
             <span>{st.label}</span>

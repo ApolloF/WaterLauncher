@@ -7,7 +7,8 @@
   import { lastPlayed, played, title, type Game } from "../lib/types";
   import { pad } from "../lib/input.svelte";
   import { padExplain } from "../lib/route";
-  import { sessionActive } from "../lib/types";
+  import { savesSummary } from "../lib/saves";
+  import { sessionActive, type Saves } from "../lib/types";
   import MatchDialog from "./MatchDialog.svelte";
 
   let { game }: { game: Game } = $props();
@@ -40,6 +41,28 @@
 
   const padMode = $derived(game.padMode || "auto");
   const padNote = $derived(padExplain(game, pad).long);
+
+  // Saves, from Syncer: fetched when the game is shown and after it was played.
+  let saves = $state<Saves | null>(null);
+  const savesInfo = $derived(savesSummary(saves));
+  $effect(() => {
+    const id = game.id;
+    const installed = game.installed;
+    lib.session?.phase; // ask again once a game session ends
+    saves = null;
+    if (!installed) return;
+    let live = true;
+    const t = setTimeout(() => {
+      api.saves
+        .get(id, lib.session?.gameId === id && lib.session.phase === "ended")
+        .then((s) => live && (saves = s))
+        .catch(() => {});
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  });
 
   function startRename() {
     menuOpen = false;
@@ -205,6 +228,23 @@
           </div>
         </div>
         <p>{padNote}</p>
+      </div>
+      <div class="card saves" class:warn={savesInfo?.tone === "warn"}>
+        <div class="card-head">
+          <Icon name="cloudCheck" size={22} stroke={1.8} />
+          <span class="grow">Saves</span>
+          {#if savesInfo?.action === "get"}
+            <button type="button" class="btn small" onclick={() => lib.run(() => api.saves.getSyncer())}>{saves?.outdated ? "Update Syncer" : "Get Syncer"}</button>
+          {:else if savesInfo?.action === "open"}
+            <button type="button" class="btn small" onclick={() => lib.run(() => api.saves.openSyncer())}>Open Syncer</button>
+          {/if}
+        </div>
+        {#if savesInfo}
+          <strong class="saves-line">{savesInfo.text}</strong>
+          <p>{savesInfo.detail}</p>
+        {:else}
+          <p>Asking Syncer…</p>
+        {/if}
       </div>
     {/if}
 
@@ -490,6 +530,18 @@
     font-size: 15px;
     font-weight: 700;
     color: var(--text);
+  }
+  .saves-line {
+    font-size: 14px;
+    color: var(--text-2);
+  }
+  .card.saves.warn .saves-line {
+    color: var(--warn);
+  }
+  .btn.small {
+    height: 30px;
+    padding: 0 12px;
+    font-size: 13px;
   }
   .card.review {
     border: 1px solid color-mix(in oklab, var(--warn) 45%, transparent);

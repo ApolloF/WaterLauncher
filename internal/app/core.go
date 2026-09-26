@@ -55,6 +55,7 @@ type Core struct {
 	shell       *Shell
 	pad         atomic.Pointer[pad.Manager]
 	lastSession int64 // the last session whose end was handled
+	registered  bool  // the game list went to Syncer (when it was running)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -172,6 +173,10 @@ func (c *Core) scanNow() {
 	c.emit(EventLibraryChanged, "scan")
 	c.rewatch(cfg)
 	c.meta.queueMissing()
+	if added > 0 || removed > 0 || !c.registered {
+		c.registered = true
+		go c.registerWithSyncer()
+	}
 }
 
 // toFound turns a scanned, identified candidate into a library record.

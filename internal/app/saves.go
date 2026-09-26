@@ -1,0 +1,291 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os/exec"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/ApolloF/WaterLauncher/internal/launch"
+	"github.com/ApolloF/WaterLauncher/internal/library"
+	"github.com/ApolloF/WaterLauncher/internal/logx"
+	"github.com/ApolloF/WaterLauncher/internal/platform"
+	"github.com/ApolloF/WaterLauncher/internal/syncer"
+)
+
+// syncerPage is where Syncer can be downloaded.
+const syncerPage = "https://github.com/ApolloF/syncer/releases/latest"
+
+// Saves is what Syncer knows about a game's saves, for the interface.
+type Saves struct {
+	Installed bool            `json:"installed"` // Syncer is installed
+	Outdated  bool            `json:"outdated"`  // too old for the launcher API
+	Available bool            `json:"available"` // Syncer answered
+	Error     string          `json:"error,omitempty"`
+	Known     bool            `json:"known"` // Syncer has save folders for this game
+	Folders   []syncer.Folder `json:"folders"`
+}
+
+// SavesService is the game's saves, through Syncer.
+type SavesService struct {
+	c *Core
+
+	mu    sync.Mutex
+	cache map[int64]cachedSaves
+}
+
+type cachedSaves struct {
+	at time.Time
+	s  Saves
+}
+
+// NewSavesService binds Syncer to core.
+func NewSavesService(c *Core) *SavesService {
+	return &SavesService{c: c, cache: map[int64]cachedSaves{}}
+}
+
+// Saves returns what Syncer knows about a game's saves. Syncer is started
+// in the background (without its window) when needed. Answers are kept
+// for a little while; fresh asks again right away.
+func (s *SavesService) Saves(id int64, fresh bool) (Saves, error) {
+	g, ok := s.c.Lib.Get(id)
+	if !ok {
+		return Saves{}, library.ErrNotFound
+	}
+	s.mu.Lock()
+	if c, ok := s.cache[id]; ok && !fresh && time.Since(c.at) < 30*time.Second {
+		s.mu.Unlock()
+		return c.s, nil
+	}
+	s.mu.Unlock()
+
+	out := Saves{Folders: []syncer.Folder{}}
+	if _, ok := syncer.Installed(); !ok {
+		return out, nil
+	}
+	out.Installed = true
+	ctx, cancel := context.WithTimeout(s.c.ctx, 15*time.Second)
+	defer cancel()
+	cl, err := syncer.Dial(ctx, true)
+	if errors.Is(err, syncer.ErrOutdated) {
+		out.Outdated, out.Error = true, err.Error()
+		return out, nil
+	}
+	if err != nil {
+		out.Error = "Syncer didn't answer"
+		return out, nil
+	}
+	defer cl.Close()
+	if _, err := cl.Status(ctx); err != nil {
+		out.Error = err.Error()
+		out.Outdated = strings.Contains(err.Error(), "API version")
+		return out, nil
+	}
+	out.Available = true
+	gs, err := cl.GameStatus(ctx, syncerGame(g))
+	if err != nil {
+		out.Error = err.Error()
+		return out, nil
+	}
+	out.Known = gs.Known
+	if gs.Folders != nil {
+		out.Folders = gs.Folders
+	}
+	s.mu.Lock()
+	s.cache[id] = cachedSaves{time.Now(), out}
+	s.mu.Unlock()
+	return out, nil
+}
+
+// OpenSyncer shows Syncer's window.
+func (s *SavesService) OpenSyncer() error {
+	exe, ok := syncer.Installed()
+	if !ok {
+		return syncer.ErrNotInstalled
+	}
+	return exec.Command(exe).Start() // a second start brings the open window forward
+}
+
+// GetSyncer opens Syncer's download page.
+func (s *SavesService) GetSyncer() error { return platform.OpenWebPage(syncerPage) }
+
+// syncerGame describes a game to Syncer.
+func syncerGame(g library.Game) syncer.Game {
+	app := g.SteamAppID
+	if app == 0 {
+		app = g.MetaAppID
+	}
+	return syncer.Game{Title: g.DisplayTitle(), Dir: g.Dir, SteamAppID: app, GogID: g.GogID}
+}
+
+// syncerGames is every installed game, for Syncer's matching.
+func (c *Core) syncerGames() []syncer.Game {
+	var out []syncer.Game
+	for _, g := range c.Lib.Games() {
+		if g.Installed && !g.Hidden {
+			out = append(out, syncerGame(g))
+		}
+	}
+	return out
+}
+
+// registerWithSyncer tells a running Syncer which games this PC has. It
+// doesn't start Syncer for it.
+func (c *Core) registerWithSyncer() {
+	if _, ok := syncer.Installed(); !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	defer cancel()
+	cl, err := syncer.Dial(ctx, false)
+	if err != nil {
+		return
+	}
+	defer cl.Close()
+	if err := cl.RegisterGames(ctx, c.syncerGames()); err != nil {
+		logx.Printf("syncer: registering games: %v", err)
+	}
+}
+
+// savesBeforeStep brings the game's saves up to date before it starts:
+// it stops for two versions of a save or a newer save still on its way
+// from another PC, then waits for Syncer to finish syncing.
+func (c *Core) savesBeforeStep(g library.Game, known *bool) launch.Step {
+	title := g.DisplayTitle()
+	return launch.Step{ID: "savesBefore", Label: "Sync saves", Timeout: 4 * time.Minute,
+		Run: func(ctx context.Context, sc *launch.StepContext) error {
+			sc.Progress("Asking Syncer…")
+			dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			cl, err := syncer.Dial(dctx, true)
+			cancel()
+			if errors.Is(err, syncer.ErrOutdated) {
+				return err
+			}
+			if err != nil {
+				return errors.New("Syncer didn't answer")
+			}
+			defer cl.Close()
+			if _, err := cl.Status(ctx); err != nil {
+				return err
+			}
+			_ = cl.RegisterGames(ctx, c.syncerGames())
+			gs, err := cl.GameStatus(ctx, syncerGame(g))
+			if err != nil {
+				return err
+			}
+			*known = gs.Known
+			if !gs.Known {
+				sc.Progress("Syncer has no saves for this game")
+				return nil
+			}
+			conflicts, newerOn := 0, ""
+			var ids []string
+			for _, f := range gs.Folders {
+				conflicts += f.Conflicts
+				if f.NewerOn != "" && newerOn == "" {
+					newerOn = f.NewerOn
+				}
+				if f.Sync {
+					ids = append(ids, f.ID)
+				}
+			}
+			wait := time.Minute
+			if conflicts > 0 {
+				a, err := sc.Ask(ctx, fmt.Sprintf("%s has two versions of a save. Pick the one to keep in Syncer first, so you don't play on the wrong one.", title), []launch.Option{
+					{ID: "open", Label: "Open Syncer"},
+					{ID: "play", Label: "Play anyway"},
+					{ID: "cancel", Label: "Cancel"},
+				})
+				switch {
+				case err != nil:
+					return err
+				case a == "open":
+					_ = cl.Open(ctx)
+					return launch.ErrCancel
+				case a == "cancel":
+					return launch.ErrCancel
+				}
+			}
+			if newerOn != "" {
+				a, err := sc.Ask(ctx, fmt.Sprintf("%s has a newer save of %s that hasn't arrived on this PC yet.", newerOn, title), []launch.Option{
+					{ID: "wait", Label: "Wait for it"},
+					{ID: "play", Label: "Play anyway"},
+					{ID: "cancel", Label: "Cancel"},
+				})
+				switch {
+				case err != nil:
+					return err
+				case a == "cancel":
+					return launch.ErrCancel
+				case a == "wait":
+					wait = 2*time.Minute + 30*time.Second
+				}
+			}
+			if len(ids) == 0 {
+				sc.Progress("Backed up, not synced")
+				return nil
+			}
+			sc.Progress("Syncing…")
+			res, err := cl.SyncNow(ctx, ids, wait)
+			if err != nil {
+				return err
+			}
+			for _, r := range res {
+				if !r.Done {
+					if r.State == "paused" {
+						return errors.New("Syncing is paused in Syncer")
+					}
+					return errors.New("Still syncing; the other PC may be off")
+				}
+			}
+			sc.Progress("Up to date")
+			return nil
+		}}
+}
+
+// savesAfterStep backs the game's saves up once it has exited.
+func (c *Core) savesAfterStep(g library.Game, known *bool) launch.Step {
+	return launch.Step{ID: "savesAfter", Label: "Back up saves", Timeout: 3 * time.Minute,
+		Run: func(ctx context.Context, sc *launch.StepContext) error {
+			dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			cl, err := syncer.Dial(dctx, true)
+			cancel()
+			if errors.Is(err, syncer.ErrOutdated) {
+				return err
+			}
+			if err != nil {
+				return errors.New("Syncer didn't answer")
+			}
+			defer cl.Close()
+			if !*known {
+				// A first play may have made the save folder; Syncer finds
+				// new games on its own, so only back up what it knows.
+				gs, err := cl.GameStatus(ctx, syncerGame(g))
+				if err != nil {
+					return err
+				}
+				if !gs.Known {
+					sc.Progress("Syncer has no saves for this game")
+					return nil
+				}
+			}
+			sc.Progress("Backing up…")
+			r, err := cl.BackupNow(ctx, true, 2*time.Minute+30*time.Second)
+			switch {
+			case err != nil && strings.Contains(strings.ToLower(err.Error()), "already"):
+				sc.Progress("Syncer is already backing up")
+			case err != nil:
+				return err
+			case !r.Finished:
+				sc.Progress("Backing up in the background")
+			case !r.OK && len(r.Errors) > 0:
+				return errors.New(strings.TrimSpace(r.Errors[0]))
+			default:
+				sc.Progress("Backed up")
+			}
+			return nil
+		}}
+}

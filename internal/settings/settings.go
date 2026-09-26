@@ -37,6 +37,10 @@ type Settings struct {
 	// While playing
 	CloseWhilePlaying bool   `json:"closeWhilePlaying"` // close the interface while a game runs (frees its memory)
 	PadWhilePlaying   string `json:"padWhilePlaying"`   // listen (PS button opens the overlay), off (release the controller)
+
+	// Saves, through Syncer
+	SyncSavesBefore  bool `json:"syncSavesBefore"`  // sync a game's saves before it starts
+	BackupSavesAfter bool `json:"backupSavesAfter"` // back its saves up after it exits
 }
 
 // Defaults are the settings on first start.
@@ -46,6 +50,7 @@ func Defaults() Settings {
 		Theme: "system", BigPictureLayout: "deck",
 		OpenBigPictureOnController: true, Haptics: true, Lightbar: true, PSButton: true, Glyphs: "auto",
 		CloseWhilePlaying: true, PadWhilePlaying: "listen",
+		SyncSavesBefore: true, BackupSavesAfter: true,
 	}
 }
 

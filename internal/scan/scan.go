@@ -11,6 +11,7 @@ import (
 
 	"github.com/ApolloF/WaterLauncher/internal/logx"
 	"github.com/ApolloF/WaterLauncher/internal/platform"
+	"github.com/ApolloF/gamekit/steam"
 )
 
 // Options control a scan.
@@ -32,7 +33,7 @@ type Result struct {
 func Run(ctx context.Context, o Options) Result {
 	start := time.Now()
 	if o.Signed == nil {
-		o.Signed = platform.Signed
+		o.Signed = steam.Signed
 	}
 	steamRoot := SteamDir()
 	folders := append([]string(nil), o.Folders...)

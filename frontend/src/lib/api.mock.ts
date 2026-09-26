@@ -1,7 +1,7 @@
 // Made-up library for `npm run dev:mock`: the games from the design canvas,
 // covering every way a game can be found.
 import type { Api } from "./api";
-import type { AppInfo, Game, MetaState, ScanState, Session, Settings } from "./types";
+import type { AppInfo, Game, MetaState, Saves, ScanState, Session, Settings } from "./types";
 import { sessionActive } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
@@ -61,7 +61,33 @@ let settings: Settings = {
   glyphs: "auto",
   closeWhilePlaying: true,
   padWhilePlaying: "listen",
+  syncSavesBefore: true,
+  backupSavesAfter: true,
 };
+
+const hour = 3600;
+function mockSaves(g: Game | undefined): Saves {
+  const base = { installed: true, available: true, known: false, folders: [] as Saves["folders"] };
+  if (!g) return base;
+  const iso = (s: number) => new Date(s * 1000).toISOString();
+  const folder = (p: Partial<Saves["folders"][number]>) => ({
+    id: g.key, label: g.title, path: "C:\\Users\\you\\AppData\\Roaming\\" + g.title, sync: true, backup: true, state: "idle",
+    needBytes: 0, errors: 0, conflicts: 0, exists: true, modified: iso(now - 5 * hour), backedUp: iso(now - 2 * hour), newerOn: "", newerAt: "", ...p,
+  });
+  switch (g.title) {
+    case "Ember Crown":
+      return { ...base, known: true, folders: [folder({})] };
+    case "Hollow Tide":
+      return { ...base, known: true, folders: [folder({ conflicts: 2 })] };
+    case "Grimwald":
+      return { ...base, known: true, folders: [folder({ newerOn: "DESKTOP-TV", newerAt: iso(now - hour) })] };
+    case "Quiet Harbor":
+      return { ...base, known: true, folders: [folder({ sync: false, state: "backup-only" })] };
+    case "Frostline":
+      return { installed: false, available: false, known: false, folders: [] };
+  }
+  return base;
+}
 
 let sgdb = false;
 let state: ScanState = { running: false, lastScan: now - 120, tookMs: 940, games: games.length, added: 0, known: 52107 };
@@ -203,6 +229,14 @@ export const mockApi: Api = {
   onMetaState() {
     return () => {};
   },
+  saves: {
+    async get(id) {
+      await wait(250);
+      return mockSaves(games.find((g) => g.id === id));
+    },
+    async openSyncer() {},
+    async getSyncer() {},
+  },
   launch: {
     async play(id) {
       const g = games.find((x) => x.id === id);
@@ -224,9 +258,9 @@ export const mockApi: Api = {
     },
     async quitGame() {
       if (session.phase !== "running") throw new Error("no game is running");
-      setSession({ phase: "finishing" });
-      await wait(400);
-      setSession({ phase: "ended" });
+      setSession({ phase: "finishing", after: [{ id: "savesAfter", label: "Back up saves", status: "running", detail: "Backing up…" }] });
+      await wait(1500);
+      setSession({ phase: "ended", after: [{ id: "savesAfter", label: "Back up saves", status: "done", detail: "Backed up" }] });
     },
     setUIMode() {},
     closeOverlay() {},
