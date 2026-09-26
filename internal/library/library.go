@@ -160,7 +160,11 @@ func Open(path string) (*Store, error) {
 		}
 	} else {
 		// This file is good: it's the one to fall back to next time.
-		go func() { _ = writeAtomic(path+".bak", b) }()
+		// Written before Open returns (a goroutine could outlive the store),
+		// without the flush to disk a real save does: it's only a spare.
+		if os.WriteFile(path+".bak.tmp", b, 0o644) == nil {
+			_ = os.Rename(path+".bak.tmp", path+".bak")
+		}
 	}
 	for _, g := range d.Games {
 		if g == nil || g.ID <= 0 || g.Key == "" || s.games[g.ID] != nil || s.byKey[g.Key] != nil {
